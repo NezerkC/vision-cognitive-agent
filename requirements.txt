@@ -1,0 +1,11 @@
+lancedb>=0.10.0
+torch
+transformers
+pillow
+pandas
+litellm
+duckduckgo-search>=6.0.0
+umap-learn
+matplotlib
+numpy
+scikit-learn
