@@ -101,8 +101,7 @@ class PerifericoGateway:
         while True:
             try:
                 if self.writer is None:
-                    logger.info("Connecting to event broker...")
-                    self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
+                    self.reader, self.writer = await asyncio.open_connection(self.host, self.port, limit=16 * 1024 * 1024)
                     logger.info("Connected to event broker. Subscribing to system and visual topics...")
 
                     # Subscribe to all relevant system/sensory/execution topics for the GUI

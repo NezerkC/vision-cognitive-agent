@@ -144,7 +144,7 @@ class EventBroker:
             await self.remove_client(writer)
 
     async def start(self):
-        server = await asyncio.start_server(self.handle_client, self.host, self.port)
+        server = await asyncio.start_server(self.handle_client, self.host, self.port, limit=16 * 1024 * 1024)
         addr = server.sockets[0].getsockname()
         logger.info(f"Serving event broker on {addr}")
 

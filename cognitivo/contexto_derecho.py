@@ -21,8 +21,7 @@ class ContextoDerecho:
     async def run(self):
         while True:
             try:
-                logger.info("Connecting to event broker...")
-                reader, writer = await asyncio.open_connection(self.host, self.port)
+                reader, writer = await asyncio.open_connection(self.host, self.port, limit=16 * 1024 * 1024)
                 logger.info("Connected to event broker.")
 
                 # Subscribe to visual sensory feed and LLM responses
