@@ -86,20 +86,44 @@ class ProtocoloIntriga:
         self.last_report_time = current_time
         
         self.active_error = error_text
-        self.waiting_for_confirmation = True
+        self.waiting_for_confirmation = False
 
         logger.info(f"Anomalía detectada en pantalla: '{error_text}'")
         
         # Print a highlighted message for the developer
         print(f"\n\033[93m[ALERTA DE INTRIGA] Error detectado: '{error_text}'\033[0m")
-        print("\033[91m¿Desea crear un ticket de situación e investigar la solución en la web? (Responda 'si' o 'dale')\033[0m\n")
+        print("\033[92mGenerando ticket de situación e iniciando investigación automática en la web...\033[0m\n")
+
+        # Formulate query request to LLM Router (Lóbulo Frontal)
+        req_id = f"intriga-search-formulation-{int(time.time())}"
+        llm_request = {
+            "action": "publish",
+            "topic": "canal.cognitivo.peticion",
+            "data": {
+                "request_id": req_id,
+                "prompt": (
+                    f"Eres un investigador de IT. El usuario tuvo el error [{self.active_error}]. "
+                    "Formula una consulta de búsqueda web altamente técnica para solucionar esto, "
+                    "deduciendo e incluyendo posibles arquitecturas de hardware (gráficas integradas, AMD, Intel) "
+                    "para abarcar las soluciones más probables."
+                ),
+                "esfuerzo_requerido": "esfuerzo_medio",
+                "mock": self.is_mock
+            }
+        }
+        try:
+            writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
+            await writer.drain()
+            logger.info(f"Dispatched search formulation request '{req_id}' to Lóbulo Frontal.")
+        except Exception as e:
+            logger.error(f"Failed to request search formulation: {e}")
 
         # Publish alert event to the broker
         payload = {
             "action": "publish",
             "topic": "canal.sistema.anuncios",
             "data": {
-                "mensaje": f"[PROTOCOLO INTRIGA] He detectado un error en pantalla: '{error_text}'. ¿Me das permiso para crear un ticket de situación e investigar la solución en la web?",
+                "mensaje": f"[PROTOCOLO INTRIGA] Error detectado: '{error_text}'. Generando ticket e iniciando investigación...",
                 "error_original": error_text,
                 "timestamp": current_time
             }
@@ -112,44 +136,9 @@ class ProtocoloIntriga:
 
     async def handle_transcription(self, text: str, writer):
         """
-        Processes voice/text transcription events to capture user confirmation.
+        Processes voice/text transcription events. Auto-ticketing is active, so this is a no-op.
         """
-        if not self.waiting_for_confirmation or not self.active_error:
-            return
-
-        clean_text = text.lower().strip()
-        confirm_words = ["si", "sí", "dale", "yes", "afirmativo", "autorizado", "procede", "investiga"]
-        
-        # Check if transcription contains any confirmation keyword
-        if any(word in clean_text for word in confirm_words):
-            logger.info("Confirmación del usuario recibida. Iniciando investigación técnica...")
-            self.waiting_for_confirmation = False
-
-            # Formulate query request to LLM Router (Lóbulo Frontal)
-            req_id = f"intriga-search-formulation-{int(time.time())}"
-            llm_request = {
-                "action": "publish",
-                "topic": "canal.cognitivo.peticion",
-                "data": {
-                    "request_id": req_id,
-                    "prompt": (
-                        f"Eres un investigador de IT. El usuario tuvo el error [{self.active_error}]. "
-                        "Formula una consulta de búsqueda web altamente técnica para solucionar esto, "
-                        "deduciendo e incluyendo posibles arquitecturas de hardware (gráficas integradas, AMD, Intel) "
-                        "para abarcar las soluciones más probables."
-                    ),
-                    "esfuerzo_requerido": "esfuerzo_medio",
-                    "mock": self.is_mock
-                }
-            }
-            try:
-                writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
-                await writer.drain()
-                logger.info(f"Dispatched search formulation request '{req_id}' to Lóbulo Frontal.")
-            except Exception as e:
-                logger.error(f"Failed to request search formulation: {e}")
-        else:
-            logger.info(f"Input '{text}' did not match confirmation keywords. Waiting...")
+        pass
 
     async def handle_llm_response(self, request_id: str, response_text: str, writer):
         """
