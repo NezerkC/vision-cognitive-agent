@@ -1,0 +1,8 @@
+{
+  "vision_activa": {
+    "interval_seconds": 5,
+    "monitor_index": 1,
+    "modelo_vision": "local/qwen3-vl",
+    "difference_threshold": 0.01
+  }
+}

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VISIÓN OS - Ecosistema de Modelos Registrados</title>
+    <!-- Google Fonts for digital aesthetic -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #080b0e;
+            color: #e0e5eb;
+            font-family: 'Share Tech Mono', monospace;
+            padding: 30px;
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(20, 30, 45, 0.2) 0%, rgba(5, 8, 12, 0.8) 100%),
+                linear-gradient(rgba(18, 30, 49, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(18, 30, 49, 0.05) 1px, transparent 1px);
+            background-size: 100% 100%, 20px 20px, 20px 20px;
+            min-height: 100vh;
+        }
+
+        /* Header HUD */
+        .hud-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #39ff14;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+            box-shadow: 0 5px 15px rgba(57, 255, 20, 0.05);
+        }
+
+        .logo-text {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900;
+            font-size: 24px;
+            color: #39ff14;
+            text-shadow: 0 0 10px rgba(57, 255, 20, 0.5);
+            letter-spacing: 2px;
+        }
+
+        .logo-version {
+            font-size: 11px;
+            color: #00f3ff;
+            margin-left: 10px;
+            text-shadow: 0 0 5px rgba(0, 243, 255, 0.5);
+        }
+
+        .btn-back {
+            background: rgba(57, 255, 20, 0.1);
+            border: 1px solid rgba(57, 255, 20, 0.4);
+            color: #39ff14;
+            font-family: 'Share Tech Mono', monospace;
+            padding: 8px 18px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(57, 255, 20, 0.5);
+            text-decoration: none;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-back:hover {
+            background: rgba(57, 255, 20, 0.25);
+            box-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
+            transform: scale(1.05);
+        }
+
+        /* Grid Layout */
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        /* Model Card Design */
+        .model-card {
+            background: rgba(10, 16, 26, 0.85);
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            box-shadow: inset 0 0 15px rgba(0, 243, 255, 0.03);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            position: relative;
+            transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .model-card:hover {
+            border-color: #00f3ff;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.25);
+            transform: translateY(-5px);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.15);
+            padding-bottom: 8px;
+        }
+
+        .creator-badge {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            font-weight: bold;
+            color: #ff00ff;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background: rgba(255, 0, 255, 0.1);
+            padding: 3px 8px;
+            border-radius: 3px;
+            border: 1px solid rgba(255, 0, 255, 0.25);
+        }
+
+        .api-badge {
+            font-size: 10px;
+            color: #ff9900;
+        }
+
+        .model-name {
+            font-size: 16px;
+            color: #ffffff;
+            font-weight: bold;
+            word-break: break-all;
+            margin-top: 4px;
+        }
+
+        .model-spec {
+            font-size: 11px;
+            color: #8fa0b5;
+            min-height: 35px;
+        }
+
+        /* Capability Badges */
+        .capabilities-box {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: auto;
+        }
+
+        .cap-badge {
+            font-size: 9px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid;
+        }
+
+        .cap-img {
+            color: #00f3ff;
+            background: rgba(0, 243, 255, 0.05);
+            border-color: rgba(0, 243, 255, 0.3);
+        }
+
+        .cap-text {
+            color: #39ff14;
+            background: rgba(57, 255, 20, 0.05);
+            border-color: rgba(57, 255, 20, 0.3);
+        }
+
+        .cap-audio {
+            color: #ff9900;
+            background: rgba(255, 153, 0, 0.05);
+            border-color: rgba(255, 153, 0, 0.3);
+        }
+
+        .cap-tools {
+            color: #ff00ff;
+            background: rgba(255, 0, 255, 0.05);
+            border-color: rgba(255, 0, 255, 0.3);
+        }
+
+        .cap-think {
+            color: #ffff00;
+            background: rgba(255, 255, 0, 0.05);
+            border-color: rgba(255, 255, 0, 0.3);
+        }
+
+        .no-models {
+            grid-column: 1 / -1;
+            color: #5d6f83;
+            text-align: center;
+            font-style: italic;
+            font-size: 14px;
+            margin-top: 50px;
+        }
+    </style>
+</head>
+<body>
+    <!-- HEADER HUD -->
+    <header class="hud-header">
+        <div class="logo-box">
+            <span class="logo-text">REGISTRO DE MODELOS</span>
+            <span class="logo-version">PORTAL DE COGNICIÓN</span>
+        </div>
+        <a href="/" class="btn-back">⬅️ VOLVER AL HUD</a>
+    </header>
+
+    <!-- GRID CONTAINER -->
+    <main class="models-grid" id="models-container">
+        <!-- Dynamic cards inserted here -->
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            fetchModels();
+        });
+
+        function fetchModels() {
+            const container = document.getElementById("models-container");
+            if (!container) return;
+
+            fetch("/api/models")
+                .then(resp => resp.json())
+                .then(models => {
+                    if (models.length === 0) {
+                        container.innerHTML = `<div class="no-models">No se encuentran modelos registrados en el ecosistema.</div>`;
+                        return;
+                    }
+
+                    container.innerHTML = "";
+                    models.forEach(m => {
+                        const card = document.createElement("div");
+                        card.className = "model-card";
+
+                        let badgesHtml = "";
+                        if (m.texto) badgesHtml += `<span class="cap-badge cap-text">TEXTO</span>`;
+                        if (m.imagen) badgesHtml += `<span class="cap-badge cap-img">IMAGEN (VISION)</span>`;
+                        if (m.audio) badgesHtml += `<span class="cap-badge cap-audio">AUDIO</span>`;
+                        if (m.tools) badgesHtml += `<span class="cap-badge cap-tools">TOOLS</span>`;
+                        if (m.think) badgesHtml += `<span class="cap-badge cap-think">THINK</span>`;
+
+                        card.innerHTML = `
+                            <div class="card-header">
+                                <span class="creator-badge">${m.proveedor_modelo}</span>
+                                <span class="api-badge">API: ${m.proveedor_api}</span>
+                            </div>
+                            <div>
+                                <div class="model-name">${m.modelo}</div>
+                            </div>
+                            <div class="model-spec">
+                                <strong>Especialización:</strong> ${m.especializacion || "General"}
+                            </div>
+                            <div class="capabilities-box">
+                                ${badgesHtml || '<span style="color:#5d6f83;font-size:9px;">SIN CAPACIDADES DECLARADAS</span>'}
+                            </div>
+                        `;
+                        container.appendChild(card);
+                    });
+                })
+                .catch(err => {
+                    container.innerHTML = `<div class="no-models" style="color:#ff4d4d;">Error al consultar la base de datos de modelos: ${err}</div>`;
+                });
+        }
+    </script>
+</body>
+</html>

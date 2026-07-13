@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VISION OS - Dashboard HUD Cognitivo</title>
+    <link rel="stylesheet" href="/gui/style.css?v=3">
+    <!-- Google Fonts for digital aesthetic -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/3d-force-graph@1.73.0/dist/3d-force-graph.min.js"></script>
+    <style>
+        /* Toggle Switch */
+        .toggle-switch { display: flex; align-items: center; gap: 10px; margin: 4px 0; }
+        .toggle-switch label { color: #8fa0b5; font-size: 11px; flex: 1; }
+        .toggle-track { position: relative; width: 40px; height: 20px; background: #1a1f2e; border: 1px solid #2a3040; border-radius: 10px; cursor: pointer; transition: border-color 0.2s, background 0.2s; flex-shrink: 0; }
+        .toggle-track.active { background: #0a2a1a; border-color: #39ff14; }
+        .toggle-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #5d6f83; border-radius: 50%; transition: left 0.2s, background 0.2s; }
+        .toggle-track.active .toggle-knob { left: 22px; background: #39ff14; box-shadow: 0 0 6px #39ff14; }
+        .toggle-status { font-size: 9px; font-family: 'Share Tech Mono', monospace; min-width: 45px; text-align: right; }
+
+        /* Slider */
+        .slider-control { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+        .slider-control label { color: #8fa0b5; font-size: 11px; }
+        .slider-row { display: flex; align-items: center; gap: 10px; }
+        .slider-row input[type="range"] { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: #1a1f2e; border: 1px solid #2a3040; border-radius: 2px; outline: none; }
+        .slider-row input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #00f3ff; border-radius: 50%; cursor: pointer; box-shadow: 0 0 6px #00f3ff; }
+        .slider-value { color: #00f3ff; font-family: 'Share Tech Mono', monospace; font-size: 10px; min-width: 30px; text-align: right; }
+
+        /* SPA Navigation */
+        .spa-nav { display: flex; gap: 2px; background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px; }
+        .spa-nav-btn { background: transparent; border: none; color: #5d6f83; font-family: 'Share Tech Mono', monospace; font-size: 10px; padding: 4px 10px; border-radius: 3px; cursor: pointer; transition: all 0.2s; }
+        .spa-nav-btn:hover { color: #8fa0b5; background: rgba(0,243,255,0.05); }
+        .spa-nav-btn.active { color: #00f3ff; background: rgba(0,243,255,0.15); text-shadow: 0 0 5px rgba(0,243,255,0.3); }
+        .spa-view { display: none; }
+        .spa-view.active { display: flex; flex-direction: column; gap: 8px; }
+
+        /* Credential input row */
+        .cred-row { display: flex; gap: 6px; align-items: center; }
+        .cred-row input { flex: 1; background: #080b0e; border: 1px solid rgba(0,243,255,0.2); color: white; padding: 5px 8px; font-family: inherit; font-size: 10px; border-radius: 3px; outline: none; }
+        .cred-row input:focus { border-color: #00f3ff; }
+        .cred-btn { background: rgba(0,243,255,0.1); border: 1px solid rgba(0,243,255,0.3); color: #00f3ff; font-family: 'Share Tech Mono', monospace; font-size: 9px; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
+        .cred-btn:hover { background: rgba(0,243,255,0.2); }
+
+        /* Provider panel card */
+        .provider-card { border: 1px solid rgba(0,243,255,0.15); border-radius: 4px; padding: 8px; background: rgba(0,0,0,0.2); }
+        .provider-card h4 { color: #00f3ff; font-family: 'Orbitron', sans-serif; font-size: 9px; letter-spacing: 0.5px; margin: 0 0 4px 0; }
+        .provider-model { color: #8fa0b5; font-size: 10px; }
+        .provider-model code { color: #39ff14; font-family: 'Share Tech Mono', monospace; }
+
+        /* Dropdown style */
+        .hw-select { background: #080b0e; border: 1px solid rgba(0,243,255,0.3); color: white; padding: 4px 6px; font-family: inherit; font-size: 10px; border-radius: 3px; outline: none; width: 100%; }
+        .hw-select:focus { border-color: #00f3ff; }
+    </style>
+</head>
+<body>
+
+    <div class="hud-container">
+        <!-- HEADER HUD -->
+        <header class="hud-header">
+            <div class="logo-box">
+                <span class="logo-text">VISIÓN OS</span>
+                <span class="logo-version">v1.2 // COGNITIVE HEARTBEAT</span>
+            </div>
+            <div class="header-controls" style="display: flex; gap: 10px; align-items: center;">
+                <!-- EMOTION INDICATOR -->
+                <div class="emotion-header-badge" id="emotion-header-badge">
+                    <span class="emotion-header-icon" id="header-emotion-icon">🧠</span>
+                    <span id="header-emotion-text" class="emotion-neutral">NEUTRAL</span>
+                    <span id="header-emotion-intensity" style="color: #5d6f83; font-size: 10px;">0.9</span>
+                </div>
+                <!-- MIC STATUS -->
+                <div class="mic-status-box">
+                    <span class="mic-label">👂 OÍDO SENSORIAL:</span>
+                    <span id="mic-status" class="status-silencio">[ 💤 SILENCIO ]</span>
+                </div>
+                <nav class="spa-nav">
+                    <button class="spa-nav-btn active" data-view="sistema">🧬 Sistema</button>
+                    <button class="spa-nav-btn" data-view="ajustes">⚙️ Ajustes</button>
+                    <button class="spa-nav-btn" data-view="modelos">🔌 Modelos</button>
+                </nav>
+                <button id="btn-settings" class="btn-settings-glow" style="cursor: pointer; background: rgba(0, 243, 255, 0.1); border: 1px solid rgba(0, 243, 255, 0.4); color: #00f3ff; font-family: 'Share Tech Mono', monospace; padding: 6px 12px; border-radius: 4px; font-weight: bold; text-shadow: 0 0 5px rgba(0, 243, 255, 0.5);">⚙️ LLM</button>
+            </div>
+        </header>
+
+        <!-- MAIN LAYOUT -->
+        <main class="hud-main">
+            <!-- LEFT PANEL: LOGS & CONSOLE -->
+            <section class="left-panel">
+                <div class="panel-header">CONSOLA DE CONSCIENCIA</div>
+
+                <!-- File Search Box -->
+                <div class="file-search-container" style="padding: 10px 15px; border-bottom: 1px dashed rgba(0, 243, 255, 0.2); display: flex; flex-direction: column; gap: 8px;">
+                    <input type="text" id="file-search-input" placeholder="🔍 Buscar archivos en el sistema..." style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px 10px; font-family: inherit; font-size: 11px; outline: none; border-radius: 4px; transition: border-color 0.2s;">
+                    <div id="file-search-results" class="hidden" style="background: rgba(0, 0, 0, 0.5); border: 1px solid rgba(0, 243, 255, 0.15); border-radius: 4px; max-height: 120px; overflow-y: auto; padding: 6px; font-size: 10px; display: flex; flex-direction: column; gap: 4px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);"></div>
+                </div>
+
+                <!-- Terminal Output logs -->
+                <div id="terminal-logs" class="terminal-box">
+                    <div class="log-line system-msg">> Inicializando enlaces de comunicación...</div>
+                    <div class="log-line system-msg">> WebSocket listo. Esperando conexión...</div>
+                </div>
+
+                <!-- Input area & Drag and Drop Dropzone -->
+                <div id="dropzone" class="dropzone-area">
+                    <span class="dropzone-label">ARRASTRÁ ARCHIVOS AQUÍ PARA INGESTA O ESCRIBÍ ABAJO</span>
+                    <div class="input-line" style="display: flex; gap: 8px; align-items: center;">
+                        <span class="prompt-char">#</span>
+                        <input type="text" id="console-input" placeholder="Escribí comando para Visión OS..." autocomplete="off" style="flex-grow: 1;">
+                        <button id="btn-panic" class="btn-panic-glow">🛑 PANIC</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CENTER PANEL: 3D MATRIX CUBE -->
+            <section class="center-panel" style="position: relative;">
+                <div class="panel-header">MATRIZ FRACTAL DE MEMORIA (3D CUBE)</div>
+                <div id="canvas-container" style="width: 100%; height: 100%;"></div>
+                <!-- 3D Raycasting Memory Tooltip -->
+                <div id="memory-tooltip" class="hud-tooltip hidden"></div>
+                <!-- Full screen Graph Button -->
+                <a href="/graph" target="_blank" class="btn-back" style="position: absolute; bottom: 15px; right: 15px; z-index: 10; text-decoration: none; font-size: 11px; padding: 6px 12px; border-radius: 4px;">🔍 GRAFO COMPLETO</a>
+            </section>
+
+            <!-- RIGHT PANEL: SISTEMA NERVIOSO COMPLETO -->
+            <section class="right-panel">
+                <div class="panel-header">🧬 SISTEMA NERVIOSO</div>
+                <div class="module-panel-scroll" id="module-panel-scroll">
+
+                    <!-- SPA VIEW: Sistema Nervioso (default) -->
+                    <div class="spa-view active" data-view="sistema">
+
+                        <!-- 1. WATCHDOG — Service grid -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">🔋</span>
+                                <span class="module-title">WATCHDOG</span>
+                                <span class="service-count" id="service-count">0/13</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-watchdog">
+                                <div id="service-grid" class="service-grid"></div>
+                                <div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 9px; color: #5d6f83;">
+                                    <span>Memoria: <span id="memory-hot-pct">0%</span></span>
+                                    <span id="health-timestamp">—</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. ESTADO EMOCIONAL -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">🧠</span>
+                                <span class="module-title">ESTADO EMOCIONAL</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-emotion">
+                                <div class="emotion-display">
+                                    <span id="emotion-value" class="emotion-neutral">NEUTRAL</span>
+                                    <div class="intensity-bar-container">
+                                        <div class="intensity-bar" id="intensity-bar" style="width: 90%"></div>
+                                    </div>
+                                    <span class="intensity-label">Intensidad: <span id="intensity-value">0.9</span></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. AMÍGDALA — Blocked alerts -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">😈</span>
+                                <span class="module-title">AMÍGDALA</span>
+                                <span class="service-count" id="amigdala-count">0</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-amigdala">
+                                <div id="amigdala-alerts" style="display: flex; flex-direction: column; gap: 2px;">
+                                    <div class="module-info-line"><span class="module-info-label">Alertas bloqueadas:</span><span class="module-info-value" id="amigdala-blocked">0</span></div>
+                                </div>
+                                <div id="amigdala-last-alert" style="margin-top: 4px;"></div>
+                            </div>
+                        </div>
+
+                        <!-- 4. VISIÓN PARIETAL -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">👁️</span>
+                                <span class="module-title">VISIÓN PARIETAL</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-vision">
+                                <div id="vision-info">
+                                    <div class="module-info-line"><span class="module-info-label">Estado:</span><span class="module-info-value" id="vision-status">Esperando...</span></div>
+                                    <div class="module-info-line"><span class="module-info-label">Última captura:</span><span class="module-info-value" id="vision-timestamp">—</span></div>
+                                    <div class="module-info-line"><span class="module-info-label">Cambio:</span><span class="module-info-value" id="vision-cambio">—</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 5. OÍDO PARIETAL -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">👂</span>
+                                <span class="module-title">OÍDO PARIETAL</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-oido">
+                                <div id="oido-info">
+                                    <div class="module-info-line"><span class="module-info-label">Estado:</span><span class="module-info-value" id="oido-status">💤 SILENCIO</span></div>
+                                    <div class="module-info-line"><span class="module-info-label">Mic:</span><span class="module-info-value" id="oido-mic">—</span></div>
+                                    <div class="module-info-line" style="flex-direction: column; align-items: flex-start; gap: 2px;">
+                                        <span class="module-info-label">Última transcripción:</span>
+                                        <span class="module-info-value" id="oido-transcript" style="font-size: 9px; color: #8fa0b5; word-break: break-word; font-style: italic;">—</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 6. PROTOCOLO INTRIGA -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">🔍</span>
+                                <span class="module-title">PROTOCOLO INTRIGA</span>
+                                <span class="service-count" id="intriga-count">0</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-intriga">
+                                <div id="intriga-info">
+                                    <div class="module-info-line"><span class="module-info-label">Activas:</span><span class="module-info-value" id="intriga-activas">0</span></div>
+                                    <div class="module-info-line"><span class="module-info-label">Completadas:</span><span class="module-info-value" id="intriga-completadas">0</span></div>
+                                    <div class="module-info-line"><span class="module-info-label">Último hallazgo:</span><span class="module-info-value" id="intriga-ultimo" style="font-style: italic;">—</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 7. EJECUTOR -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">⚡</span>
+                                <span class="module-title">EJECUTOR</span>
+                                <span class="service-count" id="ejecutor-count">0</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-ejecutor">
+                                <div id="ejecutor-info">
+                                    <div class="module-info-line"><span class="module-info-label">Total acciones:</span><span class="module-info-value" id="ejecutor-total">0</span></div>
+                                    <div id="ejecutor-last-actions" style="display: flex; flex-direction: column; gap: 2px; margin-top: 4px;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 8. IMAGINACIÓN -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">🎨</span>
+                                <span class="module-title">IMAGINACIÓN</span>
+                                <span class="module-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="module-imaginacion">
+                                <div id="imaginacion-info">
+                                    <div class="module-info-line"><span class="module-info-label">Último prompt:</span><span class="module-info-value" id="imaginacion-prompt" style="font-style: italic;">—</span></div>
+                                    <div class="module-info-line"><span class="module-info-label">Generada:</span><span class="module-info-value" id="imaginacion-timestamp">—</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 9. TICKETS HITL (moved here, was full panel before) -->
+                        <div class="module-section">
+                            <div class="module-header" onclick="toggleModuleSection(this)">
+                                <span class="module-icon">🎟️</span>
+                                <span class="module-title">TICKETS HITL</span>
+                                <span class="ticket-count-badge" id="ticket-count-header">0</span>
+                                <span class="module-toggle" id="ticket-toggle">−</span>
+                            </div>
+                            <div class="module-content" id="ticket-area">
+                                <div class="no-tickets">No hay solicitudes pendientes en este ciclo.</div>
+                            </div>
+                        </div>
+
+                    </div><!-- /sistema view -->
+
+                    <!-- SPA VIEW: Ajustes de Hardware -->
+                    <div class="spa-view" data-view="ajustes">
+                        <div class="module-section">
+                            <div class="module-header">
+                                <span class="module-icon">🎛️</span>
+                                <span class="module-title">CONTROLES DE HARDWARE</span>
+                                <span class="module-toggle" style="visibility: hidden;">−</span>
+                            </div>
+                            <div class="module-content" style="display: flex; flex-direction: column; gap: 12px; padding: 10px;">
+
+                                <!-- Mic Toggle -->
+                                <div class="toggle-switch">
+                                    <label for="toggle-mic">👂 Micrófono</label>
+                                    <div class="toggle-track active" id="toggle-mic" data-key="oido_pausado">
+                                        <div class="toggle-knob"></div>
+                                    </div>
+                                    <span class="toggle-status" id="toggle-mic-status">ACTIVO</span>
+                                </div>
+
+                                <!-- Vision Capture Frequency -->
+                                <div class="slider-control">
+                                    <label for="slider-vision-freq">👁️ Frecuencia de captura visual</label>
+                                    <div class="slider-row">
+                                        <span style="color:#5d6f83;font-size:9px;">1s</span>
+                                        <input type="range" id="slider-vision-freq" min="1" max="60" value="5">
+                                        <span style="color:#5d6f83;font-size:9px;">60s</span>
+                                        <span class="slider-value" id="slider-vision-freq-val">5s</span>
+                                    </div>
+                                </div>
+
+                                <!-- Intrigue Sensitivity -->
+                                <div class="slider-control">
+                                    <label for="slider-intriga-sens">🔍 Sensibilidad de intriga</label>
+                                    <div class="slider-row">
+                                        <span style="color:#5d6f83;font-size:9px;">Baja</span>
+                                        <input type="range" id="slider-intriga-sens" min="1" max="10" value="5">
+                                        <span style="color:#5d6f83;font-size:9px;">Alta</span>
+                                        <span class="slider-value" id="slider-intriga-sens-val">5</span>
+                                    </div>
+                                </div>
+
+                                <!-- Nervous Profile -->
+                                <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px;">
+                                    <label for="select-perfil" style="color: #8fa0b5; font-size: 11px;">🧬 Perfil nervioso</label>
+                                    <select class="hw-select" id="select-perfil">
+                                        <option value="equilibrado">Equilibrado (default)</option>
+                                        <option value="analitico">Analítico</option>
+                                        <option value="creativo">Creativo / Explorador</option>
+                                        <option value="defensivo">Defensivo / Cauteloso</option>
+                                        <option value="agresivo">Agresivo / Ofensivo</option>
+                                    </select>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- Credenciales guardadas -->
+                        <div class="module-section">
+                            <div class="module-header">
+                                <span class="module-icon">🔑</span>
+                                <span class="module-title">CREDENCIALES API</span>
+                                <span class="module-toggle" style="visibility: hidden;">−</span>
+                            </div>
+                            <div class="module-content" id="credenciales-panel" style="display: flex; flex-direction: column; gap: 8px; padding: 10px;">
+                                <div class="cred-row">
+                                    <input type="password" id="cred-openrouter" placeholder="OPENROUTER_API_KEY" style="font-family:'Share Tech Mono',monospace;">
+                                    <button class="cred-btn" data-key="OPENROUTER_API_KEY" data-input="cred-openrouter">💾</button>
+                                </div>
+                                <div class="cred-row">
+                                    <input type="password" id="cred-openai" placeholder="OPENAI_API_KEY" style="font-family:'Share Tech Mono',monospace;">
+                                    <button class="cred-btn" data-key="OPENAI_API_KEY" data-input="cred-openai">💾</button>
+                                </div>
+                                <div class="cred-row">
+                                    <input type="password" id="cred-anthropic" placeholder="ANTHROPIC_API_KEY" style="font-family:'Share Tech Mono',monospace;">
+                                    <button class="cred-btn" data-key="ANTHROPIC_API_KEY" data-input="cred-anthropic">💾</button>
+                                </div>
+                                <div class="cred-row">
+                                    <input type="password" id="cred-lmstudio" placeholder="LMSTUDIO_API_KEY" style="font-family:'Share Tech Mono',monospace;">
+                                    <button class="cred-btn" data-key="LMSTUDIO_API_KEY" data-input="cred-lmstudio">💾</button>
+                                </div>
+                                <div style="font-size:9px;color:#5d6f83;font-style:italic;">Las claves se guardan en .env del servidor</div>
+                            </div>
+                        </div>
+                    </div><!-- /ajustes view -->
+
+                    <!-- SPA VIEW: Modelos Dinámicos -->
+                    <div class="spa-view" data-view="modelos">
+                        <div class="module-section">
+                            <div class="module-header">
+                                <span class="module-icon">🔌</span>
+                                <span class="module-title">PROVEEDORES DE MODELOS</span>
+                                <span class="module-toggle" style="visibility: hidden;">−</span>
+                            </div>
+                            <div class="module-content" id="modelos-list" style="display: flex; flex-direction: column; gap: 10px; padding: 10px;">
+                                <div id="modelos-loading" style="text-align:center;padding:20px;color:#5d6f83;">Cargando modelos...</div>
+                            </div>
+                        </div>
+                    </div><!-- /modelos view -->
+
+                </div><!-- /module-panel-scroll -->
+            </section>
+        </main>
+    </div>
+
+    <!-- ⚙️ LLM CONFIGURATION MODAL (Lóbulo Frontal Control Center) -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="border-color: #00f3ff; box-shadow: 0 0 30px rgba(0, 243, 255, 0.3); width: 550px;">
+            <span id="close-settings" class="close-btn" style="color: #00f3ff;">&times;</span>
+            <div class="modal-header" style="color: #00f3ff; border-bottom-color: rgba(0, 243, 255, 0.3); text-shadow: 0 0 5px rgba(0, 243, 255, 0.3);">⚙️ CONFIGURACIÓN DEL LÓBULO FRONTAL (LLM ROUTER)</div>
+            <div class="modal-body" style="align-items: stretch; display: flex; flex-direction: column; gap: 15px;">
+
+                <!-- 1. Active Routing Map Visualizer -->
+                <div style="border: 1px solid rgba(0, 243, 255, 0.2); padding: 12px; border-radius: 4px; background: rgba(0,0,0,0.3); display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(0,243,255,0.1); padding-bottom: 4px;">
+                        <span style="font-size: 11px; color: #00f3ff; font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;">ESTRATEGIA DE RUTA ACTIVA:</span>
+                        <select id="config-routing-strategy" style="background: #080b0e; border: 1px solid rgba(0,243,255,0.3); color: #39ff14; font-size: 10px; font-family: 'Share Tech Mono', monospace; padding: 2px 4px; outline: none; border-radius: 3px; cursor: pointer;">
+                            <option value="locales">💻 LOCALES (Offline / Ollama)</option>
+                            <option value="hibrido_api">⚡ HÍBRIDO (Llamada API / Pay-Per-Call)</option>
+                            <option value="suscripcion_mensual">💎 MENSUAL (Pago Suscripción / ChatGPT Plus)</option>
+                        </select>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 10px;">
+                        <div style="border-right: 1px dashed rgba(0,243,255,0.1); padding-right: 5px;">
+                            <span style="color: #39ff14; font-weight: bold; display: block;">🟢 BAJO ESFUERZO</span>
+                            <span id="active-model-bajo" style="color: white; word-break: break-all;">Cargando...</span>
+                        </div>
+                        <div style="border-right: 1px dashed rgba(0,243,255,0.1); padding-right: 5px;">
+                            <span style="color: #ffcc00; font-weight: bold; display: block;">🟡 MEDIO ESFUERZO</span>
+                            <span id="active-model-medio" style="color: white; word-break: break-all;">Cargando...</span>
+                        </div>
+                        <div>
+                            <span style="color: #ff3333; font-weight: bold; display: block;">🔴 ALTO ESFUERZO</span>
+                            <span id="active-model-alto" style="color: white; word-break: break-all;">Cargando...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. Router Configuration Form -->
+                <form id="settings-form" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div style="font-size: 10px; color: #ff00ff; font-family: 'Share Tech Mono', monospace; font-weight: bold; letter-spacing: 0.5px;">✏️ EDITANDO ESTRATEGIA: <span id="editing-strategy-name" style="color: #00f3ff;">LOCALES</span></div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(0, 243, 255, 0.15); padding: 12px; border-radius: 4px; background: rgba(0,0,0,0.25);">
+
+                        <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Nivel de Esfuerzo a Configurar:
+                            <select id="config-effort-level" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                <option value="esfuerzo_bajo">🟢 Esfuerzo Bajo (Misión rápida, local/liviano)</option>
+                                <option value="esfuerzo_medio">🟡 Esfuerzo Medio (Razonamiento / Coding intermedio)</option>
+                                <option value="esfuerzo_alto">🔴 Esfuerzo Alto (Misiones complejas / Análisis profundo)</option>
+                            </select>
+                        </label>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 5px;">
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Proveedor de API:
+                                <select id="config-provider" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="ollama">Ollama (Local / Offline)</option>
+                                    <option value="openrouter">OpenRouter (Cloud / Todos los modelos)</option>
+                                    <option value="openai">OpenAI (Oficial)</option>
+                                    <option value="anthropic">Anthropic (Claude)</option>
+                                    <option value="gemini">Google Gemini Developer API</option>
+                                    <option value="groq">Groq (Inferencia Ultrarrápida)</option>
+                                    <option value="lmstudio">LM Studio (Local / Custom Port)</option>
+                                    <option value="custom">Otro Proveedor (Personalizado)</option>
+                                </select>
+                            </label>
+
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Modelo / Plantilla base:
+                                <select id="config-model-select" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px; margin-bottom: 5px;"></select>
+                                <input type="text" id="config-model-custom" placeholder="Ej: deepseek-r1:1.5b" class="hidden" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 5px; font-family: inherit; font-size: 11px;">
+                            </label>
+                        </div>
+
+                        <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px; margin-top: 5px;">Endpoint API Base (api_base):
+                            <input type="text" id="config-api-base" placeholder="Dejar en blanco para usar el predeterminado" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: #00f3ff; padding: 5px; font-family: 'Share Tech Mono', monospace; font-size: 11px;">
+                        </label>
+
+                        <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px; margin-top: 5px;">Token / API Key (api_key):
+                            <input type="password" id="config-api-key" placeholder="API Key / Env Variable (opcional)" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 5px; font-family: inherit; font-size: 11px;">
+                        </label>
+
+                    </div>
+
+                    <button type="submit" style="cursor: pointer; background: rgba(0, 243, 255, 0.15); border: 1px solid rgba(0, 243, 255, 0.6); color: #00f3ff; font-family: 'Orbitron', sans-serif; font-weight: bold; padding: 10px; border-radius: 4px; text-shadow: 0 0 5px rgba(0, 243, 255, 0.5); text-align: center; font-size: 11px; margin-top: 5px; letter-spacing: 0.5px;">💾 APLICAR Y RECARGAR CONFIGURACIÓN</button>
+                    <div style="display: flex; justify-content: space-between; font-size: 10px; margin-top: 8px;">
+                        <a href="/models" target="_blank" style="color: #ff00ff; text-decoration: underline; font-weight: bold;">🔗 VER CATÁLOGO DE MODELOS</a>
+                        <span style="color: #8fa0b5;">Visión recargará la configuración en caliente</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 🎨 COMFYUI OCCIPITAL IMAGE MODAL -->
+    <div id="image-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <span id="close-modal" class="close-btn">&times;</span>
+            <div class="modal-header">CORTEZA VISUAL GENERATIVA (COMFYUI)</div>
+            <div class="modal-body">
+                <img id="modal-image" src="" alt="ComfyUI output">
+                <div id="image-caption" class="caption-text">Visualización generada por prompt.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script src="/gui/app.js?v=3"></script>
+</body>
+</html>

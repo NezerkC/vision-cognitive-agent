@@ -1,0 +1,12 @@
+# Configuration for Hot/Cold Memory Tiering
+
+storage:
+  ssd_hot:
+    path: "memoria_activa"
+    max_capacity_gb: 100
+  
+  hdd_cold:
+    path: "archivo_profundo"
+    max_capacity_gb: 1500  # 1.5 TB
+
+alert_threshold: 0.85  # Alert if SSD usage > 85%
