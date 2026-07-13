@@ -5,6 +5,7 @@ import sys
 import os
 import signal
 import time
+import yaml
 
 # Configure logging to stdout
 logging.basicConfig(
@@ -27,6 +28,25 @@ class BrainstemWatchdog:
         project_root = os.path.dirname(script_dir)
         self.project_root = project_root
 
+        # Load startup configuration from config/arranque.yaml if it exists
+        arranque_path = os.path.join(project_root, "config", "arranque.yaml")
+        modos_mock = {}
+        if os.path.exists(arranque_path):
+            try:
+                with open(arranque_path, "r", encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f)
+                    if cfg and "modos_mock" in cfg:
+                        modos_mock = cfg["modos_mock"]
+                logger.info(f"Loaded startup configuration: {modos_mock}")
+            except Exception as e:
+                logger.error(f"Failed to load config/arranque.yaml: {e}")
+
+        def get_args(service_name: str, yaml_key: str) -> list[str]:
+            # CLI --mock flag forces all modes to mock.
+            # Otherwise, read from modos_mock (defaulting to True if key doesn't exist).
+            is_mock = use_mock_db or modos_mock.get(yaml_key, True)
+            return ["--mock"] if is_mock else []
+
         self.services = {
             "broker": {
                 "path": os.path.join(script_dir, "broker_eventos.py"),
@@ -42,7 +62,7 @@ class BrainstemWatchdog:
             },
             "lancedb": {
                 "path": os.path.join(project_root, "memoria", "lancedb_manager.py"),
-                "args": ["--mock"] if use_mock_db else []
+                "args": get_args("lancedb", "lancedb_manager")
             },
             "hipocampo": {
                 "path": os.path.join(project_root, "memoria", "hipocampo.py"),
@@ -50,7 +70,7 @@ class BrainstemWatchdog:
             },
             "vision": {
                 "path": os.path.join(project_root, "sentidos", "vision_parietal.py"),
-                "args": ["--mock"] if use_mock_db else []
+                "args": get_args("vision", "vision_parietal")
             },
             "contexto": {
                 "path": os.path.join(project_root, "cognitivo", "contexto_derecho.py"),
@@ -58,15 +78,15 @@ class BrainstemWatchdog:
             },
             "oido": {
                 "path": os.path.join(project_root, "sentidos", "oido_parietal.py"),
-                "args": ["--mock"] if use_mock_db else []
+                "args": get_args("oido", "oido_parietal")
             },
             "ejecutor": {
                 "path": os.path.join(project_root, "cognitivo", "ejecutor_izquierdo.py"),
-                "args": ["--mock"] if use_mock_db else []
+                "args": get_args("ejecutor", "ejecutor_izquierdo")
             },
             "imaginacion": {
                 "path": os.path.join(project_root, "sentidos", "imaginacion_occipital.py"),
-                "args": []
+                "args": get_args("imaginacion", "imaginacion_occipital")
             },
             "periferico": {
                 "path": os.path.join(project_root, "sentidos", "sistema_periferico.py"),
@@ -74,7 +94,7 @@ class BrainstemWatchdog:
             },
             "intriga": {
                 "path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"),
-                "args": ["--mock"] if use_mock_db else []
+                "args": get_args("intriga", "protocolo_intriga")
             }
         }
 

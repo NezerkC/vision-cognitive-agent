@@ -17,10 +17,11 @@ logger = logging.getLogger("ImaginacionOccipital")
 
 
 class ImaginacionOccipital:
-    def __init__(self, host: str = "127.0.0.1", port: int = 5000, comfy_url: str = "http://127.0.0.1:8188/prompt"):
+    def __init__(self, host: str = "127.0.0.1", port: int = 5000, comfy_url: str = "http://127.0.0.1:8188/prompt", force_mock: bool = False):
         self.host = host
         self.port = port
         self.comfy_url = comfy_url
+        self.force_mock = force_mock
 
         # Ensure a directory for output images exists
         self.output_dir = os.path.join(
@@ -51,6 +52,8 @@ class ImaginacionOccipital:
         """
         Sends generation request to local ComfyUI API. Falls back to mock on failure.
         """
+        if self.force_mock:
+            return await self.generate_mock_image(prompt)
         # A simple default text-to-image workflow payload for ComfyUI API
         # Note: ComfyUI expects a specific node-based workflow dictionary
         payload = {
@@ -204,7 +207,8 @@ class ImaginacionOccipital:
 
 
 if __name__ == "__main__":
-    imaginacion = ImaginacionOccipital()
+    mock_flag = "--mock" in sys.argv
+    imaginacion = ImaginacionOccipital(force_mock=mock_flag)
     try:
         asyncio.run(imaginacion.run())
     except KeyboardInterrupt:

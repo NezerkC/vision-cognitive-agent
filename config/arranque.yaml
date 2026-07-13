@@ -1,0 +1,7 @@
+modos_mock:
+  vision_parietal: false      # Usa mss real
+  oido_parietal: true         # Mantiene mic simulado por ahora
+  imaginacion_occipital: true  # ComfyUI simulado
+  ejecutor_izquierdo: true    # Evita que mueva el mouse real por ahora
+  lancedb_manager: true       # Base de datos local simulada
+  protocolo_intriga: true     # Búsquedas reales de Tavily (en mock)
