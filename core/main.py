@@ -28,6 +28,22 @@ class BrainstemWatchdog:
         project_root = os.path.dirname(script_dir)
         self.project_root = project_root
 
+        # Determine the Python executable to use for child processes.
+        # Prefer the local virtualenv python if present.
+        venv_python = None
+        if sys.platform == "win32":
+            candidate = os.path.join(project_root, ".venv", "Scripts", "python.exe")
+        else:
+            candidate = os.path.join(project_root, ".venv", "bin", "python")
+        
+        if os.path.exists(candidate):
+            venv_python = candidate
+            logger.info(f"Local virtual environment Python detected: {venv_python}")
+        else:
+            venv_python = sys.executable
+            logger.warning(f"No local .venv found. Defaulting to: {venv_python}")
+        self.python_executable = venv_python
+
         # Load startup configuration from config/arranque.yaml if it exists
         arranque_path = os.path.join(project_root, "config", "arranque.yaml")
         modos_mock = {}
@@ -111,7 +127,7 @@ class BrainstemWatchdog:
             logger.error(f"Error reading stream for {prefix}: {e}")
 
     async def supervise_service(self, name: str, path: str, args: list[str]):
-        python_executable = sys.executable
+        python_executable = self.python_executable
 
         while self.should_run:
             logger.info(f"Starting service [{name.upper()}] via: {python_executable} {path} {' '.join(args)}")
