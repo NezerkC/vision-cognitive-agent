@@ -5,3 +5,4 @@ modos_mock:
   ejecutor_izquierdo: true    # Evita que mueva el mouse real por ahora
   lancedb_manager: true       # Base de datos local simulada
   protocolo_intriga: true     # Búsquedas reales de Tavily (en mock)
+  habla_parietal: true        # TTS simulado por ahora

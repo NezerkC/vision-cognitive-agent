@@ -458,7 +458,84 @@
 
                     </div>
 
-                    <button type="submit" style="cursor: pointer; background: rgba(0, 243, 255, 0.15); border: 1px solid rgba(0, 243, 255, 0.6); color: #00f3ff; font-family: 'Orbitron', sans-serif; font-weight: bold; padding: 10px; border-radius: 4px; text-shadow: 0 0 5px rgba(0, 243, 255, 0.5); text-align: center; font-size: 11px; margin-top: 5px; letter-spacing: 0.5px;">💾 APLICAR Y RECARGAR CONFIGURACIÓN</button>
+                    <!-- 🎙️ CONFIGURACIÓN DEL OÍDO (AUDIO Y MICRÓFONO) -->
+                    <div style="border-top: 1px dashed rgba(0, 243, 255, 0.3); margin-top: 12px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <span style="font-size: 11px; color: #00f3ff; font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;">🎙️ CONFIGURACIÓN DEL OÍDO (MICRÓFONO)</span>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Modo de Oído:
+                                <select id="config-oido-mock" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="false">🎤 Micrófono Físico Real</option>
+                                    <option value="true">🤖 Simulación / Mock Mode</option>
+                                </select>
+                            </label>
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Micrófono:
+                                <select id="config-oido-device" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="default">Default (Predeterminado)</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Umbral de Ruido (Sensibilidad):
+                                <input type="number" id="config-oido-threshold" value="300" min="50" max="5000" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 5px; font-family: inherit; font-size: 11px;">
+                            </label>
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Modelo Whisper:
+                                <select id="config-oido-whisper" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="tiny">Tiny (Inferencia Rápida)</option>
+                                    <option value="base">Base (Balanceado)</option>
+                                    <option value="small">Small (Precisión Media)</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 🗣️ CONFIGURACIÓN DEL HABLA (PARLANTES Y TTS) -->
+                    <div style="border-top: 1px dashed rgba(0, 243, 255, 0.3); margin-top: 12px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <span style="font-size: 11px; color: #00f3ff; font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;">🗣️ CONFIGURACIÓN DEL HABLA (TTS Y ALTAVOCES)</span>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Modo de Habla:
+                                <select id="config-habla-mock" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="false">🔊 Altavoz Físico Real</option>
+                                    <option value="true">🤖 Simulación / Mock Mode</option>
+                                </select>
+                            </label>
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Dispositivo de Salida (Altavoz):
+                                <select id="config-habla-device" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="default">Default (Predeterminado)</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Motor TTS:
+                                <select id="config-habla-tts" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="edge-tts">Edge TTS (Voz Natural Cloud)</option>
+                                    <option value="pyttsx3">PyTTSx3 (Offline / Local SAPI5)</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 👁️ VISIÓN PARIETAL (CÁMARA) -->
+                    <div style="border-top: 1px dashed rgba(0, 243, 255, 0.3); margin-top: 12px; padding-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <span style="font-size: 11px; color: #00f3ff; font-family: 'Orbitron', sans-serif; letter-spacing: 0.5px;">👁️ VISIÓN PARIETAL (CÁMARA FÍSICA O ENLACE MÓVIL)</span>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Activar Cámara:
+                                <select id="config-vision-camara-activa" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="false">❌ Desactivada (Solo Captura Pantalla)</option>
+                                    <option value="true">📷 Activa (Captura Cámara y Pantalla)</option>
+                                </select>
+                            </label>
+                            <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Cámara Detectada:
+                                <select id="config-vision-camara-device" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: white; padding: 6px; font-family: inherit; font-size: 11px;">
+                                    <option value="0">Cámara Index 0 (Default)</option>
+                                </select>
+                            </label>
+                        </div>
+                        <label style="font-size: 11px; color: #8fa0b5; display: flex; flex-direction: column; gap: 4px;">Cámara por IP / URL Externa (Ej. IP Webcam):
+                            <input type="text" id="config-vision-camera-ip" placeholder="http://192.168.1.5:8080/video (Vacío para usar cámara detectada)" style="width: 100%; background: #080b0e; border: 1px solid rgba(0, 243, 255, 0.3); color: #00f3ff; padding: 5px; font-family: 'Share Tech Mono', monospace; font-size: 11px;">
+                        </label>
+                    </div>
+
+                    <button type="submit" style="cursor: pointer; background: rgba(0, 243, 255, 0.15); border: 1px solid rgba(0, 243, 255, 0.6); color: #00f3ff; font-family: 'Orbitron', sans-serif; font-weight: bold; padding: 10px; border-radius: 4px; text-shadow: 0 0 5px rgba(0, 243, 255, 0.5); text-align: center; font-size: 11px; margin-top: 10px; letter-spacing: 0.5px;">💾 APLICAR Y RECARGAR CONFIGURACIÓN</button>
                     <div style="display: flex; justify-content: space-between; font-size: 10px; margin-top: 8px;">
                         <a href="/models" target="_blank" style="color: #ff00ff; text-decoration: underline; font-weight: bold;">🔗 VER CATÁLOGO DE MODELOS</a>
                         <span style="color: #8fa0b5;">Visión recargará la configuración en caliente</span>

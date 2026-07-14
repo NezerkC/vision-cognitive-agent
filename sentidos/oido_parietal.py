@@ -46,6 +46,13 @@ class OidoParietal:
 
         # Pause/resume control (set by system commands via broker)
         self.pausado = False
+        
+        self.input_device_index = None
+        self.energy_threshold = 300
+        self.dynamic_energy_threshold = True
+        self.whisper_model = "tiny"
+        
+        self.load_config()
 
         # Check if we should enforce mock mode due to missing packages or flag
         if self.force_mock or not (sr and pyaudio and faster_whisper):
@@ -53,13 +60,41 @@ class OidoParietal:
             logger.info("Oído Parietal initialized in MOCK mode.")
         else:
             try:
-                # Load Whisper Model (tiny model for fast CPU inference)
-                logger.info("Loading local Whisper model (tiny)...")
-                self.model = faster_whisper.WhisperModel("tiny", device="cpu", compute_type="int8")
+                # Load Whisper Model
+                logger.info(f"Loading local Whisper model ({self.whisper_model})...")
+                self.model = faster_whisper.WhisperModel(self.whisper_model, device="cpu", compute_type="int8")
                 logger.info("Whisper model loaded successfully.")
             except Exception as e:
                 logger.warning(f"Could not load Whisper model: {e}. Falling back to MOCK mode.")
                 self.force_mock = True
+
+    def load_config(self):
+        try:
+            config_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "config",
+                "hardware_interfaces.json"
+            )
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                oido_cfg = cfg.get("oido_activo", {})
+                self.input_device_index = oido_cfg.get("input_device_index")
+                self.energy_threshold = oido_cfg.get("energy_threshold", 300)
+                self.dynamic_energy_threshold = oido_cfg.get("dynamic_energy_threshold", True)
+                self.whisper_model = oido_cfg.get("whisper_model", "tiny")
+                logger.info(f"Loaded oido config: device={self.input_device_index}, threshold={self.energy_threshold}, model={self.whisper_model}")
+            else:
+                self.input_device_index = None
+                self.energy_threshold = 300
+                self.dynamic_energy_threshold = True
+                self.whisper_model = "tiny"
+        except Exception as e:
+            logger.warning(f"Failed to load oido config: {e}. Using defaults.")
+            self.input_device_index = None
+            self.energy_threshold = 300
+            self.dynamic_energy_threshold = True
+            self.whisper_model = "tiny"
 
     def transcribe_audio_sync(self, audio_data) -> str:
         """
@@ -148,10 +183,30 @@ class OidoParietal:
 
                 if event.get("topic") == "system":
                     data = event.get("data", {})
-                    if data.get("action") == "oido_toggle":
+                    action = data.get("action")
+                    if action == "oido_toggle":
                         self.pausado = data.get("pausado", False)
                         estado = "PAUSADO" if self.pausado else "REANUDADO"
                         logger.info(f"🎙️ Oído Parietal {estado} por comando del sistema.")
+                    elif action == "reload_hardware_config":
+                        logger.info("🎙️ Oído Parietal: Recargando configuración de hardware...")
+                        self.load_config()
+                    elif action == "reload_arranque":
+                        try:
+                            arr_path = os.path.join(
+                                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "config",
+                                "arranque.yaml"
+                            )
+                            if os.path.exists(arr_path):
+                                with open(arr_path, "r", encoding="utf-8") as f:
+                                    import yaml
+                                    arr_cfg = yaml.safe_load(f)
+                                mock_flag = arr_cfg.get("modos_mock", {}).get("oido_parietal", True)
+                                self.force_mock = mock_flag or ("--mock" in sys.argv)
+                                logger.info(f"🎙️ Oído Parietal: Estado mock actualizado a {self.force_mock}")
+                        except Exception as ex:
+                            logger.warning(f"Failed to reload mock settings in Oido: {ex}")
         except asyncio.TimeoutError:
             pass  # No message within timeout — reader_daemon keeps running
         except Exception as e:
@@ -180,7 +235,10 @@ class OidoParietal:
                 else:
                     # Real microphone capture loop using SpeechRecognition
                     r = sr.Recognizer()
-                    mic = sr.Microphone()
+                    r.energy_threshold = self.energy_threshold
+                    r.dynamic_energy_threshold = self.dynamic_energy_threshold
+                    
+                    mic = sr.Microphone(device_index=self.input_device_index)
                     
                     logger.info("Microphone listener calibrated. Starting listening loop...")
                     with mic as source:

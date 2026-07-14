@@ -487,6 +487,186 @@ async def save_config_modulos(request: Request):
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
+@app.get("/api/config/microfonos")
+async def list_microphones():
+    """Lists detected PyAudio microphone input devices."""
+    devices = []
+    try:
+        import pyaudio
+        p = pyaudio.PyAudio()
+        try:
+            for i in range(p.get_device_count()):
+                try:
+                    info = p.get_device_info_by_index(i)
+                    if info.get('maxInputChannels', 0) > 0:
+                        devices.append({
+                            "index": i,
+                            "name": info.get('name', f"Microphone {i}")
+                        })
+                except Exception:
+                    pass
+        finally:
+            p.terminate()
+        return {"status": "success", "devices": devices}
+    except Exception as e:
+        logger.warning(f"Failed to list microphones: {e}")
+        return {"status": "error", "message": str(e), "devices": []}
+
+
+@app.get("/api/config/altavoces")
+async def list_speakers():
+    """Lists detected PyAudio speaker output devices."""
+    devices = []
+    try:
+        import pyaudio
+        p = pyaudio.PyAudio()
+        try:
+            for i in range(p.get_device_count()):
+                try:
+                    info = p.get_device_info_by_index(i)
+                    if info.get('maxOutputChannels', 0) > 0:
+                        devices.append({
+                            "index": i,
+                            "name": info.get('name', f"Speaker {i}")
+                        })
+                except Exception:
+                    pass
+        finally:
+            p.terminate()
+        return {"status": "success", "devices": devices}
+    except Exception as e:
+        logger.warning(f"Failed to list speakers: {e}")
+        return {"status": "error", "message": str(e), "devices": []}
+
+
+@app.get("/api/config/camaras")
+async def list_cameras():
+    """
+    Detects available camera indices using cv2.VideoCapture with DirectShow on Windows.
+    Checks indices from 0 to 3.
+    """
+    devices = []
+    try:
+        import cv2
+        loop = asyncio.get_running_loop()
+        def _check_cameras():
+            cam_list = []
+            for i in range(4):
+                try:
+                    cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+                    if cap.isOpened():
+                        cam_list.append({
+                            "id": i,
+                            "nombre": f"Cámara Windows/Móvil {i}"
+                        })
+                        cap.release()
+                except Exception:
+                    pass
+            return cam_list
+            
+        devices = await loop.run_in_executor(None, _check_cameras)
+        return {"status": "success", "devices": devices}
+    except Exception as e:
+        logger.warning(f"Failed to list cameras: {e}")
+        return {"status": "error", "message": str(e), "devices": []}
+
+
+@app.get("/api/config/hardware")
+async def get_config_hardware():
+    """Returns the content of config/hardware_interfaces.json."""
+    hw_path = os.path.join(PROJECT_ROOT, "config", "hardware_interfaces.json")
+    defaults = {
+        "vision_activa": {
+            "interval_seconds": 5,
+            "monitor_index": 1,
+            "modelo_vision": "local/qwen3-vl",
+            "difference_threshold": 0.01,
+            "camara_activa": False,
+            "camara_index": 0,
+            "camera_ip": ""
+        },
+        "oido_activo": {
+            "input_device_index": None,
+            "energy_threshold": 300,
+            "dynamic_energy_threshold": True,
+            "whisper_model": "tiny"
+        },
+        "habla_activa": {
+            "output_device_index": None,
+            "tts_engine": "edge-tts"
+        }
+    }
+    try:
+        if os.path.exists(hw_path):
+            with open(hw_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            # Ensure keys exist
+            for key, val in defaults.items():
+                if key not in cfg:
+                    cfg[key] = val
+                else:
+                    for subkey, subval in val.items():
+                        if subkey not in cfg[key]:
+                            cfg[key][subkey] = subval
+            return {"status": "success", "config": cfg}
+        return {"status": "success", "config": defaults}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@app.post("/api/config/hardware")
+async def save_config_hardware(request: Request):
+    """Saves hardware configuration to config/hardware_interfaces.json."""
+    hw_path = os.path.join(PROJECT_ROOT, "config", "hardware_interfaces.json")
+    try:
+        cfg = await request.json()
+        with open(hw_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        await gateway.publish_event("system", {"action": "reload_hardware_config", "timestamp": time.time()})
+        return {"status": "success", "message": "Hardware configuration saved."}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@app.get("/api/config/arranque")
+async def get_config_arranque():
+    """Returns the content of config/arranque.yaml."""
+    arr_path = os.path.join(PROJECT_ROOT, "config", "arranque.yaml")
+    defaults = {
+        "modos_mock": {
+            "vision_parietal": False,
+            "oido_parietal": True,
+            "imaginacion_occipital": True,
+            "ejecutor_izquierdo": True,
+            "lancedb_manager": True,
+            "protocolo_intriga": True,
+            "habla_parietal": True
+        }
+    }
+    try:
+        if os.path.exists(arr_path):
+            with open(arr_path, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+            return {"status": "success", "config": cfg}
+        return {"status": "success", "config": defaults}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@app.post("/api/config/arranque")
+async def save_config_arranque(request: Request):
+    """Saves startup configuration to config/arranque.yaml."""
+    arr_path = os.path.join(PROJECT_ROOT, "config", "arranque.yaml")
+    try:
+        cfg = await request.json()
+        with open(arr_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False)
+        await gateway.publish_event("system", {"action": "reload_arranque", "timestamp": time.time()})
+        return {"status": "success", "message": "Startup configuration saved."}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
 @app.get("/api/modelos/lmstudio")
 async def mapear_modelos_lmstudio():
     """

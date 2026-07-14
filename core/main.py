@@ -111,6 +111,10 @@ class BrainstemWatchdog:
             "intriga": {
                 "path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"),
                 "args": get_args("intriga", "protocolo_intriga")
+            },
+            "habla": {
+                "path": os.path.join(project_root, "sentidos", "habla_parietal.py"),
+                "args": get_args("habla", "habla_parietal")
             }
         }
 

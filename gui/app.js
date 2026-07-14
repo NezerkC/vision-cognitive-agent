@@ -697,6 +697,100 @@ function setupEventListeners() {
                 console.error("Error loading active strategy: ", err);
             }
 
+            // Load Oído, Habla, and Cámara configurations
+            try {
+                // 1. Fetch microphones
+                const micResp = await fetch(`http://${HOST}:${API_PORT}/api/config/microfonos`);
+                const micData = await micResp.json();
+                const micSelect = document.getElementById("config-oido-device");
+                if (micSelect) {
+                    micSelect.innerHTML = '<option value="default">Default (Predeterminado)</option>';
+                    if (micData.status === "success" && micData.devices) {
+                        micData.devices.forEach(dev => {
+                            const opt = document.createElement("option");
+                            opt.value = dev.index;
+                            opt.textContent = `[ID ${dev.index}] ${dev.name}`;
+                            micSelect.appendChild(opt);
+                        });
+                    }
+                }
+
+                // 2. Fetch altavoces (speakers)
+                const spkResp = await fetch(`http://${HOST}:${API_PORT}/api/config/altavoces`);
+                const spkData = await spkResp.json();
+                const spkSelect = document.getElementById("config-habla-device");
+                if (spkSelect) {
+                    spkSelect.innerHTML = '<option value="default">Default (Predeterminado)</option>';
+                    if (spkData.status === "success" && spkData.devices) {
+                        spkData.devices.forEach(dev => {
+                            const opt = document.createElement("option");
+                            opt.value = dev.index;
+                            opt.textContent = `[ID ${dev.index}] ${dev.name}`;
+                            spkSelect.appendChild(opt);
+                        });
+                    }
+                }
+
+                // 3. Fetch cameras
+                const camResp = await fetch(`http://${HOST}:${API_PORT}/api/config/camaras`);
+                const camData = await camResp.json();
+                const camSelect = document.getElementById("config-vision-camara-device");
+                if (camSelect) {
+                    camSelect.innerHTML = "";
+                    if (camData.status === "success" && camData.devices && camData.devices.length > 0) {
+                        camData.devices.forEach(dev => {
+                            const opt = document.createElement("option");
+                            opt.value = dev.id;
+                            opt.textContent = `[ID ${dev.id}] ${dev.nombre}`;
+                            camSelect.appendChild(opt);
+                        });
+                    } else {
+                        const opt = document.createElement("option");
+                        opt.value = "0";
+                        opt.textContent = "Cámara Index 0 (Default)";
+                        camSelect.appendChild(opt);
+                    }
+                }
+
+                // 4. Fetch current hardware config
+                const hwResp = await fetch(`http://${HOST}:${API_PORT}/api/config/hardware`);
+                const hwData = await hwResp.json();
+                if (hwData.status === "success" && hwData.config) {
+                    const oidoCfg = hwData.config.oido_activo || {};
+                    const hablaCfg = hwData.config.habla_activa || {};
+                    const visionCfg = hwData.config.vision_activa || {};
+
+                    document.getElementById("config-oido-threshold").value = oidoCfg.energy_threshold !== undefined ? oidoCfg.energy_threshold : 300;
+                    document.getElementById("config-oido-whisper").value = oidoCfg.whisper_model || "tiny";
+                    if (micSelect && oidoCfg.input_device_index !== undefined && oidoCfg.input_device_index !== null) {
+                        micSelect.value = oidoCfg.input_device_index;
+                    }
+
+                    document.getElementById("config-habla-tts").value = hablaCfg.tts_engine || "edge-tts";
+                    if (spkSelect && hablaCfg.output_device_index !== undefined && hablaCfg.output_device_index !== null) {
+                        spkSelect.value = hablaCfg.output_device_index;
+                    }
+
+                    document.getElementById("config-vision-camara-activa").value = visionCfg.camara_activa ? "true" : "false";
+                    if (camSelect && visionCfg.camara_index !== undefined && visionCfg.camara_index !== null) {
+                        camSelect.value = visionCfg.camara_index;
+                    }
+                    document.getElementById("config-vision-camera-ip").value = visionCfg.camera_ip || "";
+                }
+
+                // 5. Fetch startup config
+                const arrResp = await fetch(`http://${HOST}:${API_PORT}/api/config/arranque`);
+                const arrData = await arrResp.json();
+                if (arrData.status === "success" && arrData.config && arrData.config.modos_mock) {
+                    const mockOido = arrData.config.modos_mock.oido_parietal;
+                    const mockHabla = arrData.config.modos_mock.habla_parietal;
+                    document.getElementById("config-oido-mock").value = mockOido ? "true" : "false";
+                    document.getElementById("config-habla-mock").value = mockHabla ? "true" : "false";
+                }
+            } catch (err) {
+                console.error("Error loading hardware/audio config in UI: ", err);
+            }
+
             await refreshActiveRoutingVisualizer();
             settingsModal.classList.remove("hidden");
         });
@@ -785,7 +879,26 @@ function setupEventListeners() {
             else if (provider === "groq" && !modelName.startsWith("groq/")) fullModelPath = `groq/${modelName}`;
             else if (provider === "lmstudio" && !modelName.startsWith("openai/")) fullModelPath = `openai/${modelName}`;
 
+            // Extract Oído values
+            const mockOidoVal = (document.getElementById("config-oido-mock").value === "true");
+            const micVal = document.getElementById("config-oido-device").value;
+            const inputDeviceIndex = micVal === "default" ? null : parseInt(micVal);
+            const energyThreshold = parseInt(document.getElementById("config-oido-threshold").value) || 300;
+            const whisperModel = document.getElementById("config-oido-whisper").value;
+
+            // Extract Habla values
+            const mockHablaVal = (document.getElementById("config-habla-mock").value === "true");
+            const spkVal = document.getElementById("config-habla-device").value;
+            const outputDeviceIndex = spkVal === "default" ? null : parseInt(spkVal);
+            const ttsEngine = document.getElementById("config-habla-tts").value;
+
+            // Extract Visión values
+            const camaraActiva = (document.getElementById("config-vision-camara-activa").value === "true");
+            const camaraIndex = parseInt(document.getElementById("config-vision-camara-device").value) || 0;
+            const cameraIp = document.getElementById("config-vision-camera-ip").value.trim();
+
             try {
+                // 1. Save LLM Router config
                 const getResp = await fetch(`http://${HOST}:${API_PORT}/api/config`);
                 const currentCfg = await getResp.json();
 
@@ -799,21 +912,56 @@ function setupEventListeners() {
                 if (apiKey) currentCfg.strategies[strategy][effortLevel].api_key = apiKey;
                 else delete currentCfg.strategies[strategy][effortLevel].api_key;
 
-                const postResp = await fetch(`http://${HOST}:${API_PORT}/api/config`, {
+                await fetch(`http://${HOST}:${API_PORT}/api/config`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(currentCfg)
                 });
 
-                const res = await postResp.json();
-                if (res.status === "success") {
-                    addTerminalLog(`✅ Lóbulo Frontal: Configuración de "${effortLevel}" en estrategia "${strategy}" actualizada a "${fullModelPath}".`, "resp-success");
-                    settingsModal.classList.add("hidden");
-                    settingsForm.reset();
-                    flashMemoryCubes(0x39ff14);
-                } else {
-                    addTerminalLog(`⚠️ Error al actualizar el ruteador: ${res.message}`, "resp-error");
-                }
+                // 2. Save Hardware config
+                const hwGet = await fetch(`http://${HOST}:${API_PORT}/api/config/hardware`);
+                const hwGetJson = await hwGet.json();
+                const currentHw = hwGetJson.config || {};
+                
+                if (!currentHw.vision_activa) currentHw.vision_activa = {};
+                currentHw.vision_activa.camara_activa = camaraActiva;
+                currentHw.vision_activa.camara_index = camaraIndex;
+                currentHw.vision_activa.camera_ip = cameraIp;
+
+                if (!currentHw.oido_activo) currentHw.oido_activo = {};
+                currentHw.oido_activo.input_device_index = inputDeviceIndex;
+                currentHw.oido_activo.energy_threshold = energyThreshold;
+                currentHw.oido_activo.dynamic_energy_threshold = true;
+                currentHw.oido_activo.whisper_model = whisperModel;
+
+                if (!currentHw.habla_activa) currentHw.habla_activa = {};
+                currentHw.habla_activa.output_device_index = outputDeviceIndex;
+                currentHw.habla_activa.tts_engine = ttsEngine;
+
+                await fetch(`http://${HOST}:${API_PORT}/api/config/hardware`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(currentHw)
+                });
+
+                // 3. Save Arranque config
+                const arrGet = await fetch(`http://${HOST}:${API_PORT}/api/config/arranque`);
+                const arrGetJson = await arrGet.json();
+                const currentArr = arrGetJson.config || {};
+                if (!currentArr.modos_mock) currentArr.modos_mock = {};
+                currentArr.modos_mock.oido_parietal = mockOidoVal;
+                currentArr.modos_mock.habla_parietal = mockHablaVal;
+
+                await fetch(`http://${HOST}:${API_PORT}/api/config/arranque`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(currentArr)
+                });
+
+                addTerminalLog(`✅ Lóbulo Frontal y Hardware: Configuraciones actualizadas correctamente.`, "resp-success");
+                settingsModal.classList.add("hidden");
+                settingsForm.reset();
+                flashMemoryCubes(0x39ff14);
             } catch (err) {
                 addTerminalLog(`❌ Fallo de red al guardar la configuración: ${err}`, "resp-error");
             }
