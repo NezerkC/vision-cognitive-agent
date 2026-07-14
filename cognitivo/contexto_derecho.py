@@ -3,6 +3,9 @@ import json
 import logging
 import sys
 import time
+import os
+import shutil
+import psutil
 
 # Configure logging
 logging.basicConfig(
@@ -35,6 +38,9 @@ class ContextoDerecho:
                 }) + "\n"
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
+
+                # Start Zapatilla Eléctrica background CLI scan loop
+                asyncio.create_task(self.scan_host_clis_loop(writer))
 
                 while True:
                     line = await reader.readline()
@@ -114,6 +120,63 @@ class ContextoDerecho:
             except Exception as e:
                 logger.error(f"Error in HemisferioDerecho loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
+
+    async def scan_host_clis_loop(self, writer):
+        # Allow some time for startup to finish
+        await asyncio.sleep(15)
+        while True:
+            try:
+                await self.scan_and_trigger_training(writer)
+            except Exception as e:
+                logger.error(f"Error in Host CLI scanning: {e}")
+            # Scan every 5 minutes
+            await asyncio.sleep(300)
+
+    async def scan_and_trigger_training(self, writer):
+        logger.info("Scanning Host for available CLI tools...")
+        # Common CLI tools to check
+        clis = ["npm", "git", "docker", "python", "pip", "cargo", "go", "terraform", "kubectl", "gcloud"]
+        
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        skills_dir = os.path.join(project_root, "cognitivo", "skills")
+        os.makedirs(skills_dir, exist_ok=True)
+        
+        for cli in clis:
+            # Check if command is available in PATH
+            cli_path = shutil.which(cli)
+            if cli_path:
+                logger.debug(f"CLI '{cli}' found at: {cli_path}")
+                # Check if we already have a tool script for this CLI
+                tool_filename = f"{cli}_tool.py"
+                tool_path = os.path.join(skills_dir, tool_filename)
+                
+                # Check if it's already running in current processes
+                is_running = False
+                try:
+                    for proc in psutil.process_iter(['name']):
+                        if cli in (proc.info['name'] or '').lower():
+                            is_running = True
+                            break
+                except Exception:
+                    pass
+
+                if not os.path.exists(tool_path):
+                    logger.info(f"⚡ [Zapatilla Eléctrica] Detected installed CLI '{cli}' without matching skill script. Triggering auto-training...")
+                    # Publish training request
+                    training_msg = {
+                        "action": "publish",
+                        "topic": "canal.intriga",
+                        "data": {
+                            "action": "solicitud_capacitacion",
+                            "modo": "capacitacion",
+                            "cli_name": cli,
+                            "is_running": is_running,
+                            "timestamp": time.time()
+                        }
+                    }
+                    writer.write((json.dumps(training_msg) + "\n").encode("utf-8"))
+                    await writer.drain()
+
 
 if __name__ == "__main__":
     derecho = ContextoDerecho()

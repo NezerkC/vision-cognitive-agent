@@ -167,12 +167,43 @@ class LLMRouter:
         except Exception as e:
             logger.error(f"Failed to publish log: {e}")
 
+    async def perform_memory_search(self, request_id: str, query: str) -> list:
+        """
+        Publishes a search request to the LanceDB manager and awaits the response.
+        """
+        if not hasattr(self, 'active_writer') or not self.active_writer:
+            logger.warning("No active broker connection for memory search.")
+            return []
+
+        search_future = asyncio.get_running_loop().create_future()
+        self.pending_searches[request_id] = search_future
+
+        search_msg = {
+            "action": "publish",
+            "topic": "canal.memoria",
+            "data": {
+                "action": "buscar",
+                "request_id": request_id,
+                "query": query,
+                "top_n": 3
+            }
+        }
+        try:
+            self.active_writer.write((json.dumps(search_msg) + "\n").encode("utf-8"))
+            await self.active_writer.drain()
+            results = await asyncio.wait_for(search_future, timeout=4.0)
+            return results
+        except Exception as e:
+            logger.error(f"Memory search error: {e}")
+            return []
+
     async def run(self):
         while True:
             try:
                 logger.info("Connecting to event broker...")
                 reader, writer = await asyncio.open_connection(self.host, self.port)
                 logger.info("Connected to event broker.")
+                self.active_writer = writer
 
                 # Subscribe to relevant topics including memory responses
                 subscribe_msg = json.dumps({
@@ -234,164 +265,19 @@ class LLMRouter:
 
     async def process_request(self, writer, request_id: str, prompt: str, effort: str, mock: bool):
         try:
-            # 1. Orchestrator stage: classify intention using low-effort model
-            await self.publish_log(writer, "🤖 [Lóbulo Frontal] Petición recibida. Clasificando intención...")
+            await self.publish_log(writer, "🤖 [Lóbulo Frontal] Procesando petición en Tren de Información (Grafo)...")
             
-            delegate = "chat_agent"
-            recommended_effort = effort
-            delegation_reason = "Conversación estándar"
-            subprompt = prompt
+            # Execute StateGraph from orquestador_graph
+            from orquestador_graph import ejecutar_orquestador_graph
+            response_text = await ejecutar_orquestador_graph(prompt, request_id, mock)
 
-            if not mock:
-                classification_prompt = (
-                    "Analiza el siguiente mensaje del usuario y clasifícalo para delegarlo al agente experto adecuado de Visión OS.\n"
-                    f"Mensaje del usuario: \"{prompt}\"\n\n"
-                    "Debes responder EXCLUSIVAMENTE con un objeto JSON válido con la siguiente estructura (sin markdown, bloques de código, ni texto adicional):\n"
-                    "{\n"
-                    "  \"delegate\": \"graph_agent\" | \"ingest_agent\" | \"peripheral_agent\" | \"chat_agent\",\n"
-                    "  \"recommended_effort\": \"esfuerzo_bajo\" | \"esfuerzo_medio\" | \"esfuerzo_alto\",\n"
-                    "  \"delegation_reason\": \"breve explicación en español de por qué elegís este agente\",\n"
-                    "  \"subprompt\": \"el mensaje del usuario refinado o adaptado para el agente experto\"\n"
-                    "}"
-                )
-                try:
-                    # Run classification
-                    classification_resp, _ = await self.call_llm("esfuerzo_bajo", classification_prompt, mock=False)
-                    
-                    # Clean markdown code blocks if any
-                    clean_str = classification_resp.strip()
-                    if clean_str.startswith("```json"):
-                        clean_str = clean_str[7:]
-                    if clean_str.endswith("```"):
-                        clean_str = clean_str[:-3]
-                    clean_str = clean_str.strip()
-
-                    parsed = json.loads(clean_str)
-                    delegate = parsed.get("delegate", "chat_agent")
-                    recommended_effort = parsed.get("recommended_effort", effort)
-                    delegation_reason = parsed.get("delegation_reason", "Conversación general")
-                    subprompt = parsed.get("subprompt", prompt)
-                except Exception as parse_err:
-                    logger.warning(f"Orchestrator classification failed to parse: {parse_err}. Falling back to default chat_agent.")
-
-            # Log delegation step to HUD console
-            log_msg = f"📡 [Delegación] Intención: {delegation_reason} -> Derivando a [{delegate}] ({recommended_effort})"
-            await self.publish_log(writer, log_msg)
-
-            # 2. Expert agent processing
-            expert_prompt = ""
-            if delegate == "graph_agent":
-                await self.publish_log(writer, f"🔍 [Agente de Grafo] Consultando LanceDB para buscar '{subprompt}'...")
-                
-                search_future = asyncio.get_running_loop().create_future()
-                self.pending_searches[request_id] = search_future
-
-                # Request semantic search
-                search_msg = {
-                    "action": "publish",
-                    "topic": "canal.memoria",
-                    "data": {
-                        "action": "buscar",
-                        "request_id": request_id,
-                        "query": subprompt,
-                        "top_n": 3
-                    }
-                }
-                writer.write((json.dumps(search_msg) + "\n").encode("utf-8"))
-                await writer.drain()
-
-                # Await search response from LanceDBManager
-                try:
-                    results = await asyncio.wait_for(search_future, timeout=4.0)
-                except asyncio.TimeoutError:
-                    results = []
-                    logger.warning("Timeout waiting for memory search.")
-
-                if results:
-                    formatted = "\n".join([
-                        f"- Fichero: {r.get('metadata', {}).get('filename', 'desconocido')} (Distancia: {r.get('score', 1.0):.3f})\n  Excerpto: {r.get('text', '')}"
-                        for r in results
-                    ])
-                    await self.publish_log(writer, f"✅ [Agente de Grafo] Encontradas {len(results)} memorias vectoriales relevantes.")
-                else:
-                    formatted = "No se encontraron memorias vectoriales coincidentes."
-                    await self.publish_log(writer, "⚠️ [Agente de Grafo] No se obtuvieron coincidencias.")
-
-                expert_prompt = (
-                    "Eres el Agente de Grafo y Base de Datos Vectorial de Visión OS.\n"
-                    "Tu especialidad es analizar los nodos de memoria y responder al usuario utilizando la información de la base de datos local.\n"
-                    "Debes responder en español de manera atenta.\n\n"
-                    f"Información recuperada de LanceDB:\n{formatted}\n\n"
-                    f"Mensaje del usuario: {subprompt}\n"
-                )
-
-            elif delegate == "peripheral_agent":
-                await self.publish_log(writer, "👁️ [Agente de Periféricos] Leyendo el estado del sistema...")
-                system_context = (
-                    "- Monitor activo: Monitor 1 (Principal)\n"
-                    "- Captura de pantalla: Activa en Lóbulo Parietal (sentidos/vision_parietal.py)\n"
-                    "- Modos de ruteo configurados: Locales (Ollama), Híbrido (API), Mensual (Suscripción)\n"
-                    "- Ecosistema: Conectado a base de datos LanceDB (memoria_activa)\n"
-                )
-                expert_prompt = (
-                    "Eres el Agente de Periféricos y Hardware de Visión OS.\n"
-                    "Reportas sobre el estado del capturador de pantalla, ventanas activas y periféricos.\n"
-                    "Responde en español basándote en este estado:\n\n"
-                    f"{system_context}\n\n"
-                    f"Mensaje del usuario: {subprompt}\n"
-                )
-
-            elif delegate == "ingest_agent":
-                await self.publish_log(writer, "📥 [Agente de Ingestión] Iniciando asistente de importación...")
-                expert_prompt = (
-                    "Eres el Agente de Ingestión de Documentos de Visión OS.\n"
-                    "Guías al usuario para subir, procesar e importar archivos o PDFs en el sistema.\n"
-                    "Responde en español de forma instructiva y clara.\n\n"
-                    f"Mensaje del usuario: {subprompt}\n"
-                )
-
-            else:  # chat_agent
-                await self.publish_log(writer, "💬 [Agente Conversacional] Procesando respuesta general...")
-                expert_prompt = (
-                    "Eres el Agente Conversacional de Visión OS.\n"
-                    "Conversas de forma amigable y ayudas con dudas generales o programación.\n"
-                    "Responde en español cálido.\n\n"
-                    f"Mensaje del usuario: {subprompt}\n"
-                )
-
-            # 3. Check for code/programming requests → Torre de Programación
-            texto_usuario = subprompt or prompt
-            palabras_clave = [
-                "programa", "código", "codigo", "escribí", "hacé un",
-                "función", "clase", "implement", "algoritmo", "script",
-                "api rest", "endpoint", "microservicio"
-            ]
-            es_peticion_codigo = any(kw in texto_usuario.lower() for kw in palabras_clave)
-
-            if es_peticion_codigo and not mock:
-                await self.publish_log(writer, "🏢 [Torre de Programación] Derivando a agentes Arquitecto → Programador → QA...")
-                try:
-                    from cognitivo.distrito_agentes.torre_programacion import ejecutar_peticion_codigo
-                    codigo_final = await ejecutar_peticion_codigo(texto_usuario)
-                    response_text = codigo_final
-                    model_used = "Torre de Programación (Arquitecto+Programador+QA)"
-                except ImportError:
-                    await self.publish_log(writer, "⚠️ LangGraph no disponible. Usando LLM directo.")
-                    response_text, model_used = await self.call_llm(recommended_effort, expert_prompt, mock)
-                except Exception as e:
-                    await self.publish_log(writer, f"⚠️ Error en Torre de Programación: {e}. Usando LLM directo.")
-                    response_text, model_used = await self.call_llm(recommended_effort, expert_prompt, mock)
-            else:
-                # 4. Call the specialized expert model (normal flow)
-                response_text, model_used = await self.call_llm(recommended_effort, expert_prompt, mock)
-            
             response_event = {
                 "action": "publish",
                 "topic": "canal.cognitivo.respuesta",
                 "data": {
                     "request_id": request_id,
                     "response": response_text,
-                    "model_used": f"{delegate} ({model_used})",
+                    "model_used": "LangGraph StateGraph (Orquestador)",
                     "status": "success"
                 }
             }

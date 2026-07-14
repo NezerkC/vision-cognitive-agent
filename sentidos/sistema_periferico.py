@@ -5,7 +5,7 @@ import os
 import sys
 import time
 import uvicorn
-from fastapi import FastAPI, Request, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, File, UploadFile, WebSocket, WebSocketDisconnect, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -13,6 +13,11 @@ import yaml
 import lancedb
 import httpx
 from dotenv import set_key, find_dotenv
+import tempfile
+import base64
+import litellm
+from langchain_community.document_loaders import PyPDFLoader, CSVLoader, TextLoader
+
 
 # Configure logging
 logging.basicConfig(
@@ -665,6 +670,198 @@ async def save_config_arranque(request: Request):
         return {"status": "success", "message": "Startup configuration saved."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+def get_vision_model_details():
+    try:
+        yaml_path = os.path.join(PROJECT_ROOT, "config", "llm_router.yaml")
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        strategy = cfg.get("routing_strategy", "hibrido_api")
+        model_cfg = cfg.get("strategies", {}).get(strategy, {}).get("esfuerzo_medio", {})
+        model_name = model_cfg.get("model", "openrouter/google/gemini-2.5-flash:free")
+        api_base = model_cfg.get("api_base")
+        api_key_env = model_cfg.get("api_key")
+        api_key = os.environ.get(api_key_env, api_key_env) if api_key_env else None
+        return model_name, api_base, api_key
+    except Exception:
+        return "openrouter/google/gemini-2.5-flash:free", "https://openrouter.ai/api/v1", os.environ.get("OPENROUTER_API_KEY")
+
+
+@app.post("/api/memoria/aprender")
+async def api_memoria_aprender(file: UploadFile = File(...), description: str = Form(None)):
+    """
+    Multimodal learning port that ingests texts, audio or images, extracts/processes
+    information and indexes it in LanceDB.
+    """
+    filename = file.filename
+    content_type = file.content_type or ""
+    logger.info(f"Learning API: Ingesting file '{filename}' of type '{content_type}'")
+
+    # 1. Save upload to temp file
+    suffix = os.path.splitext(filename)[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        content = await file.read()
+        tmp.write(content)
+        temp_file_path = tmp.name
+
+    try:
+        text_content = ""
+        meta_source = "document"
+
+        # 2. Ingestion MIME router
+        # Images (png, jpg, jpeg, webp)
+        if content_type.startswith("image/") or suffix.lower() in [".png", ".jpg", ".jpeg", ".webp"]:
+            logger.info("MIME type: Image. Initiating vision analysis...")
+            meta_source = "image"
+            
+            # Encode image in base64
+            with open(temp_file_path, "rb") as img_f:
+                img_b64 = base64.b64encode(img_f.read()).decode("utf-8")
+                
+            model_name, api_base, api_key = get_vision_model_details()
+            
+            prompt_text = "Describe esta imagen de forma extremadamente detallada para usarla como memoria contextual. Enumera los objetos, colores, texto visible y el tema central."
+            if description:
+                prompt_text += f" Contexto adicional proporcionado por el usuario: {description}"
+                
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{content_type or 'image/jpeg'};base64,{img_b64}"
+                            }
+                        }
+                    ]
+                }
+            ]
+            
+            # Call vision LLM
+            kwargs = {}
+            if api_base:
+                kwargs["api_base"] = api_base
+            if api_key:
+                kwargs["api_key"] = api_key
+                
+            logger.info(f"Calling vision model '{model_name}' to describe image...")
+            response = await litellm.acompletion(
+                model=model_name,
+                messages=messages,
+                timeout=30.0,
+                **kwargs
+            )
+            text_content = response.choices[0].message.content
+            logger.info("Successfully generated image description.")
+
+        # Audio (mp3, wav, ogg, m4a, flac)
+        elif content_type.startswith("audio/") or suffix.lower() in [".mp3", ".wav", ".ogg", ".m4a", ".flac"]:
+            logger.info("MIME type: Audio. Initiating transcription...")
+            meta_source = "audio"
+            
+            # Try faster-whisper first
+            try:
+                from faster_whisper import WhisperModel
+                logger.info("Loading faster-whisper model...")
+                model = WhisperModel("tiny", device="cpu", compute_type="int8")
+                segments, info = model.transcribe(temp_file_path)
+                text_content = " ".join([segment.text for segment in segments])
+            except ImportError:
+                # Fallback to speech_recognition
+                logger.info("faster-whisper not installed. Falling back to speech_recognition...")
+                import speech_recognition as sr
+                recognizer = sr.Recognizer()
+                try:
+                    with sr.AudioFile(temp_file_path) as src:
+                        audio_data = recognizer.record(src)
+                        text_content = recognizer.recognize_google(audio_data, language="es-ES")
+                except Exception as audio_err:
+                    logger.warning(f"Local speech recognition failed: {audio_err}. Generating fallback mock transcript.")
+                    text_content = f"[Transcripción de audio fallida] Archivo: {filename}."
+                    if description:
+                        text_content += f" Descripción del audio: {description}"
+            logger.info("Audio transcription completed.")
+
+        # Documents (PDF, CSV, plain text)
+        else:
+            logger.info("MIME type: Document. Extracting text...")
+            if suffix.lower() == ".pdf":
+                try:
+                    loader = PyPDFLoader(temp_file_path)
+                    docs = loader.load()
+                    text_content = "\n".join([doc.page_content for doc in docs])
+                except Exception as pdf_err:
+                    logger.error(f"Failed to load PDF: {pdf_err}")
+                    raise pdf_err
+            elif suffix.lower() == ".csv":
+                try:
+                    loader = CSVLoader(temp_file_path)
+                    docs = loader.load()
+                    text_content = "\n".join([doc.page_content for doc in docs])
+                except Exception as csv_err:
+                    logger.error(f"Failed to load CSV: {csv_err}")
+                    raise csv_err
+            else:
+                try:
+                    loader = TextLoader(temp_file_path, encoding="utf-8")
+                    docs = loader.load()
+                    text_content = "\n".join([doc.page_content for doc in docs])
+                except Exception:
+                    with open(temp_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        text_content = f.read()
+            logger.info(f"Extracted {len(text_content)} characters from document.")
+
+        if not text_content.strip():
+            raise ValueError("No text content could be extracted or generated from the uploaded file.")
+
+        # 3. Publish to LanceDB via Broker Event
+        metadata_payload = {
+            "filename": filename,
+            "mime_type": content_type,
+            "source": meta_source,
+            "timestamp": time.time()
+        }
+        if description:
+            metadata_payload["user_description"] = description
+
+        # Publish the guardar event
+        publish_ok = await gateway.publish_event("canal.memoria", {
+            "action": "guardar",
+            "text": text_content,
+            "coordenada_x": 0.0,
+            "coordenada_y": 0.0,
+            "temperatura_z": 100.0,  # Save to SSD Hot memory tier
+            "escala_magnitud": "KB",
+            "metadata": metadata_payload
+        })
+
+        if publish_ok:
+            logger.info(f"Published learning document '{filename}' to LanceDB manager.")
+            return {
+                "status": "success",
+                "message": f"File '{filename}' ingested successfully.",
+                "type": meta_source,
+                "extracted_content_preview": text_content[:200] + "..." if len(text_content) > 200 else text_content
+            }
+        else:
+            return JSONResponse(status_code=500, content={
+                "status": "error",
+                "message": "Failed to publish learning document to LanceDB manager broker."
+            })
+
+    except Exception as e:
+        logger.error(f"Error in multimodal learning endpoint: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+    finally:
+        # Clean up temp file
+        if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception:
+                pass
 
 
 @app.get("/api/modelos/lmstudio")

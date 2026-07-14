@@ -144,6 +144,53 @@ class ProtocoloIntriga:
         """
         Executes web search using formulated query and stores solution in LanceDB.
         """
+        if request_id.startswith("capacitacion-tool-"):
+            parts = request_id.split("-")
+            cli_name = parts[2]
+            clean_code = response_text.strip()
+            if clean_code.startswith("```python"):
+                clean_code = clean_code[9:]
+            elif clean_code.startswith("```"):
+                clean_code = clean_code[3:]
+            if clean_code.endswith("```"):
+                clean_code = clean_code[:-3]
+            clean_code = clean_code.strip()
+            
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            skills_dir = os.path.join(project_root, "cognitivo", "skills")
+            os.makedirs(skills_dir, exist_ok=True)
+            tool_path = os.path.join(skills_dir, f"{cli_name}_tool.py")
+            
+            try:
+                with open(tool_path, "w", encoding="utf-8") as f:
+                    f.write(clean_code)
+                logger.info(f"🎉 [Capacitación] Nueva herramienta guardada físicamente en: {tool_path}")
+                
+                save_payload = {
+                    "action": "publish",
+                    "topic": "canal.memoria",
+                    "data": {
+                        "action": "guardar",
+                        "text": f"Aprendí a usar la CLI '{cli_name}'. Se creó y registró la herramienta en '{tool_path}'. Código:\n{clean_code}",
+                        "coordenada_x": 2.0,
+                        "coordenada_y": 3.0,
+                        "temperatura_z": 100.0,
+                        "escala_magnitud": "KB",
+                        "metadata": {
+                            "tipo": "auto_capacitacion",
+                            "cli_name": cli_name,
+                            "timestamp": time.time()
+                        }
+                    }
+                }
+                writer.write((json.dumps(save_payload) + "\n").encode("utf-8"))
+                await writer.drain()
+                logger.info(f"Learned tool index saved to LanceDB for {cli_name}.")
+                print(f"\n\033[92m[AUTO-CAPACITACIÓN COMPLETADA] Visión aprendió a controlar la CLI '{cli_name}' y registró su tool.\033[0m\n")
+            except Exception as e:
+                logger.error(f"Failed to write generated skill file: {e}")
+            return
+
         if not request_id.startswith("intriga-search-formulation-"):
             return
 
@@ -184,6 +231,47 @@ class ProtocoloIntriga:
         except Exception as e:
             logger.error(f"Failed to store solution in LanceDB: {e}")
 
+    async def iniciar_protocolo_capacitacion(self, cli_name: str, writer):
+        logger.info(f"🎓 [Protocolo de Capacitación] Iniciando auto-capacitación para la CLI: '{cli_name}'")
+        
+        # 1. Search Tavily for CLI documentation and examples
+        search_query = f"how to use {cli_name} cli python commands documentation examples"
+        logger.info(f"Querying Tavily for '{cli_name}' documentation...")
+        documentation = await self.call_tavily_search(search_query)
+        
+        # 2. Formulate LLM call to write the tool
+        req_id = f"capacitacion-tool-{cli_name}-{int(time.time())}"
+        
+        prompt_write_tool = (
+            "Eres el Protocolo de Capacitación Autónoma de Visión OS.\n"
+            f"Hemos detectado que la herramienta CLI '{cli_name}' está instalada en el sistema local, pero carecemos de una herramienta en Python para controlarla.\n\n"
+            f"Documentación e información técnica recopilada de la web:\n{documentation}\n\n"
+            "Tu tarea es escribir un script de Python que exporte una herramienta de LangChain usando el decorador `@tool`.\n"
+            "El script DEBE seguir exactamente estas directrices:\n"
+            "1. Importar `from langchain_core.tools import tool`.\n"
+            "2. Definir una función decorada con `@tool` que acepte parámetros, ejecute comandos del CLI de manera segura usando `subprocess`, y retorne el stdout/stderr como string.\n"
+            "3. La función debe tener un docstring detallado explicando para qué sirve, para que el orquestador de LangGraph sepa cuándo invocarla.\n"
+            "4. Responder ÚNICAMENTE con el código ejecutable de Python, sin bloques de código markdown ```python ni explicaciones adicionales. El código debe empezar directamente con los imports.\n"
+            "Código de Python:"
+        )
+        
+        llm_request = {
+            "action": "publish",
+            "topic": "canal.cognitivo.peticion",
+            "data": {
+                "request_id": req_id,
+                "prompt": prompt_write_tool,
+                "esfuerzo_requerido": "esfuerzo_medio",
+                "mock": self.is_mock
+            }
+        }
+        try:
+            writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
+            await writer.drain()
+            logger.info(f"Dispatched tool generation request '{req_id}' to LLM Router.")
+        except Exception as e:
+            logger.error(f"Failed to publish tool writing request: {e}")
+
     async def run(self):
         while True:
             try:
@@ -198,6 +286,7 @@ class ProtocoloIntriga:
                         "canal.sistema.contexto_actual",
                         "canal.sensorial.audio.transcripcion",
                         "canal.cognitivo.respuesta",
+                        "canal.intriga",
                         "system"
                     ]
                 }) + "\n"
@@ -220,6 +309,11 @@ class ProtocoloIntriga:
                     elif topic == "canal.sensorial.audio.transcripcion":
                         transcription = data.get("transcripcion", "")
                         await self.handle_transcription(transcription, writer)
+
+                    elif topic == "canal.intriga":
+                        if data.get("modo") == "capacitacion":
+                            cli_name = data.get("cli_name")
+                            await self.iniciar_protocolo_capacitacion(cli_name, writer)
 
                     elif topic == "canal.cognitivo.respuesta":
                         req_id = data.get("request_id", "")
