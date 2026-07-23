@@ -112,6 +112,10 @@ class BrainstemWatchdog:
                 "path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"),
                 "args": get_args("intriga", "protocolo_intriga")
             },
+            "web_search": {
+                "path": os.path.join(project_root, "cognitivo", "web_search.py"),
+                "args": get_args("web_search", "web_search")
+            },
             "habla": {
                 "path": os.path.join(project_root, "sentidos", "habla_parietal.py"),
                 "args": get_args("habla", "habla_parietal")
@@ -132,9 +136,12 @@ class BrainstemWatchdog:
 
     async def supervise_service(self, name: str, path: str, args: list[str]):
         python_executable = self.python_executable
+        backoff_delay = 1
+        max_backoff = 30
 
         while self.should_run:
             logger.info(f"Starting service [{name.upper()}] via: {python_executable} {path} {' '.join(args)}")
+            start_time = time.time()
             try:
                 proc = await asyncio.create_subprocess_exec(
                     python_executable,
@@ -144,7 +151,7 @@ class BrainstemWatchdog:
                     stderr=asyncio.subprocess.PIPE
                 )
                 self.processes[name] = proc
-                self.process_start_times[name] = time.time()
+                self.process_start_times[name] = start_time
 
                 # Spawn concurrent log reading tasks
                 asyncio.create_task(self._log_stream(proc.stdout, name.upper()))
@@ -152,18 +159,29 @@ class BrainstemWatchdog:
 
                 # Wait for the service process to exit
                 exit_code = await proc.wait()
+                runtime = time.time() - start_time
 
                 if not self.should_run:
                     logger.info(f"Service [{name.upper()}] stopped intentionally (exit code: {exit_code}).")
                     break
 
-                logger.error(f"Service [{name.upper()}] exited unexpectedly with code {exit_code}. Restarting in 3 seconds...")
-                await asyncio.sleep(3)
+                # Reset backoff if service ran stably for at least 30 seconds
+                if runtime >= 30:
+                    backoff_delay = 1
+                else:
+                    backoff_delay = min(backoff_delay * 2, max_backoff)
+
+                logger.error(
+                    f"Service [{name.upper()}] exited unexpectedly with code {exit_code} "
+                    f"after {int(runtime)}s. Backoff restart in {backoff_delay}s..."
+                )
+                await asyncio.sleep(backoff_delay)
 
             except Exception as e:
                 logger.critical(f"Supervision failed for service [{name.upper()}]: {e}")
                 if self.should_run:
-                    await asyncio.sleep(5)
+                    backoff_delay = min(backoff_delay * 2, max_backoff)
+                    await asyncio.sleep(backoff_delay)
                 else:
                     break
 

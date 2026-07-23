@@ -3,6 +3,11 @@ import json
 import logging
 import sys
 
+try:
+    from core.schemas import EventEnvelope
+except ImportError:
+    EventEnvelope = None
+
 # Configure logging to stdout so the Watchdog can capture it
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +68,13 @@ class EventBroker:
         if not subscribers:
             logger.debug(f"No subscribers for topic '{topic}'. Event dropped.")
             return
+
+        if EventEnvelope and isinstance(data, dict):
+            try:
+                envelope = EventEnvelope.validate_payload(topic=topic, data=data)
+                data = envelope.data
+            except Exception as ve:
+                logger.warning(f"Schema validation warning for topic '{topic}': {ve}")
 
         payload = json.dumps({"topic": topic, "data": data}) + "\n"
         encoded_payload = payload.encode("utf-8")
