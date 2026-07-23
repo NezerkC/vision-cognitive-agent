@@ -1,6 +1,7 @@
-import os
 import json
 import logging
+import os
+
 from langchain_core.tools import tool
 
 logger = logging.getLogger("SistemaEmocional")
@@ -21,18 +22,18 @@ def actualizar_emocion(estado: str, intensidad: float) -> str:
     try:
         # Validar intensidad
         intensidad = max(0.0, min(1.0, float(intensidad)))
-        
+
         # Cargar datos
         emociones = {
             "estado": estado,
             "intensidad": intensidad
         }
-        
+
         # Guardar en emotions.json
         os.makedirs(os.path.dirname(EMOTIONS_PATH), exist_ok=True)
         with open(EMOTIONS_PATH, "w", encoding="utf-8") as f:
             json.dump(emociones, f)
-            
+
         logger.info(f"Emotional state updated successfully to: {estado} (intensity={intensidad})")
         return f"Éxito: Estado emocional actualizado a '{estado}' con intensidad {intensidad}."
     except Exception as e:

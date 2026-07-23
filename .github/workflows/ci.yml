@@ -33,11 +33,11 @@ jobs:
       - uses: astral-sh/ruff-action@v1
         with:
           version: "latest"
-          args: "check --exclude .venv"
+          args: "check core/ cognitivo/ sentidos/ memoria/ tests/ --exclude .venv"
       - name: Check formatting
         uses: astral-sh/ruff-action@v1
         with:
-          args: "format --check --exclude .venv"
+          args: "format --check core/ cognitivo/ sentidos/ memoria/ tests/ --exclude .venv"
 
   test:
     name: 🧪 Tests

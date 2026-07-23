@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Any
 
 # ─────────────────────────────────────────────────────────────────
 # Logging
@@ -28,8 +27,9 @@ logger = logging.getLogger("TorreProgramacion")
 # 1. Definición del Estado
 # ─────────────────────────────────────────────────────────────────
 try:
-    from typing import TypedDict, Annotated, List
-    from langgraph.graph import StateGraph, END
+    from typing import TypedDict
+
+    from langgraph.graph import END, StateGraph
     LANGRAPH_DISPONIBLE = True
 except ImportError:
     LANGRAPH_DISPONIBLE = False
