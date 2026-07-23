@@ -49,7 +49,7 @@
   },
   {
     "proveedor_modelo": "openrouter/openrouter",
-    "proveedor_api": "sk-or-v1-<REDACTED>",
+    "proveedor_api": "OpenRouter",
     "modelo": "free models",
     "especializacion": "General",
     "texto": true,

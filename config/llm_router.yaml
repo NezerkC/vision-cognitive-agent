@@ -4,7 +4,7 @@ fallback_rules:
 roles:
   modelo_chat_principal:
     hibrido_api: openrouter/google/gemini-2.5-flash:free
-    locales: llama3.2:latest
+    locales: ollama/llama3.2:latest
     suscripcion_mensual: openai/gpt-4o-mini
   modelo_stt_oido:
     hibrido_api: faster-whisper
@@ -14,7 +14,7 @@ roles:
     hibrido_api: openai/tts-1
     locales: null
     suscripcion_mensual: openai/tts-1
-routing_strategy: hibrido_api
+routing_strategy: locales
 strategies:
   hibrido_api:
     esfuerzo_alto:
@@ -22,6 +22,7 @@ strategies:
       fallback: esfuerzo_bajo
       model: openrouter/deepseek/deepseek-r1
     esfuerzo_bajo:
+      api_base: http://localhost:11434
       fallback: null
       model: ollama/llama3.2:latest
     esfuerzo_medio:
@@ -30,24 +31,24 @@ strategies:
       model: openrouter/google/gemini-2.5-flash:free
   locales:
     esfuerzo_alto:
-      api_base: http://localhost:11434/v1
+      api_base: http://localhost:11434
       fallback: esfuerzo_bajo
-      model: deepseek-r1:14b
+      model: ollama/deepseek-r1:14b
     esfuerzo_bajo:
-      api_base: http://localhost:11434/v1
+      api_base: http://localhost:11434
       fallback: null
-      model: llama3.2:latest
+      model: ollama/llama3.2:latest
     esfuerzo_medio:
-      api_base: http://localhost:11434/v1
+      api_base: http://localhost:11434
       fallback: esfuerzo_bajo
-      model: qwen2.5-coder:14b
+      model: ollama/qwen2.5-coder:14b
   suscripcion_mensual:
     esfuerzo_alto:
       fallback: esfuerzo_bajo
       model: anthropic/claude-3-5-sonnet-20241022
     esfuerzo_bajo:
       api_base: https://openrouter.ai/api/v1
-      api_key: sk-or-v1-<REDACTED>
+      api_key: ${OPENROUTER_API_KEY}
       fallback: null
       model: openrouter/google/gemini-2.5-flash
     esfuerzo_medio:
