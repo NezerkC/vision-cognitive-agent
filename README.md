@@ -1,6 +1,6 @@
 # Vision Cognitive Agent
 
-Autonomous cognitive architecture using CLIP, LanceDB, and LiteLLM.
+Autonomous cognitive architecture using LiteLLM, LanceDB, LangGraph, and FastAPI.
 
 ## Setup
 

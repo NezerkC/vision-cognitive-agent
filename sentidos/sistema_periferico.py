@@ -377,6 +377,26 @@ async def save_new_model(request: Request):
 # Phase 7: Credential management, dynamic model mapping, and module config
 # ---------------------------------------------------------------------------
 
+@app.get("/api/config/credenciales")
+async def get_credenciales():
+    """
+    Reads credentials from .env file and returns them.
+    Keys returned: OPENROUTER_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, LMSTUDIO_API_KEY, TAVILY_API_KEY
+    """
+    try:
+        from dotenv import dotenv_values
+        env_path = os.path.join(PROJECT_ROOT, ".env")
+        creds = {}
+        if os.path.exists(env_path):
+            env_vars = dotenv_values(env_path)
+            keys_to_return = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LMSTUDIO_API_KEY", "TAVILY_API_KEY"]
+            for k in keys_to_return:
+                creds[k] = env_vars.get(k, "")
+        return {"status": "success", "credenciales": creds}
+    except Exception as e:
+        logger.error(f"Error reading credentials: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "mensaje": str(e)})
+
 @app.post("/api/config/credenciales")
 async def guardar_credenciales(request: Request):
     """
@@ -457,6 +477,7 @@ async def save_config_modelos(request: Request):
         return {"status": "success", "message": "Model config updated and router reloaded."}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 
 
 @app.get("/api/config/modulos")
@@ -888,6 +909,56 @@ async def mapear_modelos_lmstudio():
                 "error": "LM Studio no está corriendo en localhost:1234"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "mensaje": str(e)})
+
+
+@app.get("/api/modelos/ollama")
+async def mapear_modelos_ollama():
+    """
+    Fetches models from local Ollama daemon (http://localhost:11434/api/tags)
+    and returns detected models.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://localhost:11434/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            models = []
+            for m in data.get("models", []):
+                models.append({
+                    "id": m.get("name", "unknown"),
+                    "proveedor": "ollama",
+                    "tipo": "local"
+                })
+            return {"status": "success", "modelos": models, "fuente": "ollama"}
+    except Exception as e:
+        logger.warning(f"Failed to connect to Ollama: {e}")
+        return {"status": "offline", "modelos": [], "fuente": "ollama",
+                "error": "Ollama no está corriendo o no es accesible en localhost:11434"}
+
+
+@app.post("/api/modelos/ollama/pull")
+async def pull_ollama_model(request: Request):
+    """
+    Pulls a model from the Ollama registry.
+    """
+    try:
+        data = await request.json()
+        model_tag = data.get("modelo", "").strip()
+        if not model_tag:
+            return JSONResponse(status_code=400, content={"status": "error", "message": "Falta el nombre del modelo."})
+        
+        model_name = f"ollama/{model_tag}"
+        from cognitivo.gestor_modelos_locales import pull_model_if_missing
+        
+        # Run pull_model_if_missing in the event loop
+        success = await pull_model_if_missing(model_name)
+        if success:
+            return {"status": "success", "message": f"Modelo {model_tag} descargado e instalado."}
+            
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"Falló la descarga del modelo {model_tag}."})
+    except Exception as e:
+        logger.error(f"Error pulling model: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
 @app.get("/api/modelos/openrouter")
