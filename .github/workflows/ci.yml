@@ -1,0 +1,91 @@
+# .github/workflows/ci.yml
+name: CI — Vision OS
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for hardcoded API keys
+        run: |
+          echo "Buscando API keys hardcodeadas..."
+          ! grep -rn "sk-or-v1\|sk-proj\|sk-ant\|AIza" \
+            --include="*.py" --include="*.yaml" --include="*.yml" \
+            --include="*.json" --include="*.md" --include="*.toml" \
+            --exclude-dir=.venv --exclude-dir=.git --exclude="HANDOFF_CI-CD.md" \
+            --exclude="implementation_plan.md" .
+
+  lint:
+    name: 🧹 Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v1
+        with:
+          version: "latest"
+          args: "check --exclude .venv"
+      - name: Check formatting
+        uses: astral-sh/ruff-action@v1
+        with:
+          args: "format --check --exclude .venv"
+
+  test:
+    name: 🧪 Tests
+    needs: [security-scan, lint]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml', 'requirements.txt') }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio pytest-cov ruff pydantic
+          pip install -r requirements.txt 2>/dev/null || true
+      - name: Run tests
+        run: |
+          pytest tests/ -v --cov=core --cov=cognitivo \
+            --cov-report=xml --cov-report=term-missing \
+            -x --tb=short
+
+  build:
+    name: 📦 Build Verification
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Create .env from template
+        run: |
+          cp .env.example .env
+      - name: Verify project structure
+        run: |
+          echo "Verificando estructura del proyecto..."
+          test -f core/main.py
+          test -f core/broker_eventos.py
+          test -f core/schemas.py
+          test -f cognitivo/llm_router.py
+          test -f cognitivo/orquestador_graph.py
+          test -f sentidos/sistema_periferico.py
+          echo "✅ Estructura OK"

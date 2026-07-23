@@ -1,0 +1,39 @@
+# .github/workflows/release.yml
+name: Release — Vision OS
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  release:
+    name: 🚀 Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run full test suite
+        run: |
+          pip install pytest pytest-asyncio pydantic
+          pip install -r requirements.txt 2>/dev/null || true
+          pytest tests/ -v -x --tb=short
+      - name: Generate release notes
+        run: |
+          echo "# Visión OS ${{ github.ref_name }}" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "## Changes" >> RELEASE_NOTES.md
+          git log $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD \
+            --pretty=format:"- %s (%h)" >> RELEASE_NOTES.md
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md
+          files: |
+            requirements.txt
+            .env.example
+            pyproject.toml
