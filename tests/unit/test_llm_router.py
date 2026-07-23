@@ -1,5 +1,6 @@
 """Unit tests for LLMRouter model routing logic."""
 import pytest
+
 from cognitivo.llm_router import LLMRouter
 
 

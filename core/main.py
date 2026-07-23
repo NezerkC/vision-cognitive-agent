@@ -1,10 +1,11 @@
 import asyncio
 import json
 import logging
-import sys
 import os
 import signal
+import sys
 import time
+
 import yaml
 
 # Configure logging to stdout
@@ -35,7 +36,7 @@ class BrainstemWatchdog:
             candidate = os.path.join(project_root, ".venv", "Scripts", "python.exe")
         else:
             candidate = os.path.join(project_root, ".venv", "bin", "python")
-        
+
         if os.path.exists(candidate):
             venv_python = candidate
             logger.info(f"Local virtual environment Python detected: {venv_python}")
@@ -49,7 +50,7 @@ class BrainstemWatchdog:
         modos_mock = {}
         if os.path.exists(arranque_path):
             try:
-                with open(arranque_path, "r", encoding="utf-8") as f:
+                with open(arranque_path, encoding="utf-8") as f:
                     cfg = yaml.safe_load(f)
                     if cfg and "modos_mock" in cfg:
                         modos_mock = cfg["modos_mock"]
@@ -166,10 +167,7 @@ class BrainstemWatchdog:
                     break
 
                 # Reset backoff if service ran stably for at least 30 seconds
-                if runtime >= 30:
-                    backoff_delay = 1
-                else:
-                    backoff_delay = min(backoff_delay * 2, max_backoff)
+                backoff_delay = 1 if runtime >= 30 else min(backoff_delay * 2, max_backoff)
 
                 logger.error(
                     f"Service [{name.upper()}] exited unexpectedly with code {exit_code} "

@@ -1,5 +1,6 @@
 """Unit tests for safety module Amigdala."""
 import pytest
+
 from core.amigdala import Amigdala
 
 

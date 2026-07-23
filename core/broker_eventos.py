@@ -31,7 +31,7 @@ class EventBroker:
                 if topic not in self.subscriptions:
                     self.subscriptions[topic] = set()
                 self.subscriptions[topic].add(writer)
-                
+
                 if writer not in self.client_topics:
                     self.client_topics[writer] = set()
                 self.client_topics[writer].add(topic)
@@ -64,7 +64,7 @@ class EventBroker:
             topic_subs = self.subscriptions.get(topic, set())
             wildcard_subs = self.subscriptions.get("*", set())
             subscribers = list(topic_subs | wildcard_subs)
-        
+
         if not subscribers:
             logger.debug(f"No subscribers for topic '{topic}'. Event dropped.")
             return
@@ -96,7 +96,7 @@ class EventBroker:
         async with self.lock:
             payload = json.dumps({"topic": "system", "data": {"action": "purge"}}) + "\n"
             encoded_payload = payload.encode("utf-8")
-            
+
             # Send the system purge notification to all connected clients
             all_writers = list(self.client_topics.keys())
             for writer in all_writers:
@@ -116,7 +116,7 @@ class EventBroker:
                 line = await reader.readline()
                 if not line:
                     break
-                
+
                 try:
                     message = json.loads(line.decode("utf-8").strip())
                 except json.JSONDecodeError:

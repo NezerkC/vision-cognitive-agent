@@ -1,5 +1,6 @@
 """Unit tests for EventBroker TCP bus."""
 import pytest
+
 from core.broker_eventos import EventBroker
 from core.schemas import EventEnvelope
 
