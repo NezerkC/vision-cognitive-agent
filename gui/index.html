@@ -100,6 +100,15 @@
                     <div class="log-line system-msg">> WebSocket listo. Esperando conexión...</div>
                 </div>
 
+                <!-- Detail Inspector / Sub-Chat -->
+                <div class="panel-header" style="border-top: 1px solid rgba(0, 243, 255, 0.2); font-size: 11px; padding: 6px 15px; background: rgba(0, 243, 255, 0.05); display: flex; justify-content: space-between; align-items: center;">
+                    <span>🔍 DETALLE DE CONSCIENCIA</span>
+                    <span style="font-size: 8px; color: #8fa0b5;">INSPECTOR DE PROCESO</span>
+                </div>
+                <div id="inspector-logs" class="inspector-box" style="flex-grow: 1; min-height: 200px; overflow-y: auto; padding: 12px; background: rgba(0, 0, 0, 0.4); border-bottom: 1px solid rgba(0, 243, 255, 0.2); font-size: 11px; line-height: 1.4; color: #a4b3c6; scrollbar-width: thin;">
+                    <div style="color: #5d6f83; font-style: italic;">Hacé clic en "[ver detalles]" en cualquier log de la consola superior para ver el razonamiento o los datos del subagente completo aquí.</div>
+                </div>
+
                 <!-- Input area & Drag and Drop Dropzone -->
                 <div id="dropzone" class="dropzone-area">
                     <span class="dropzone-label">ARRASTRÁ ARCHIVOS AQUÍ PARA INGESTA O ESCRIBÍ ABAJO</span>
@@ -297,6 +306,24 @@
                                     <span class="toggle-status" id="toggle-mic-status">ACTIVO</span>
                                 </div>
 
+                                <!-- Vision Toggle -->
+                                <div class="toggle-switch">
+                                    <label for="toggle-vision">👁️ Captura de Pantalla</label>
+                                    <div class="toggle-track active" id="toggle-vision" data-key="vision_pausado">
+                                        <div class="toggle-knob"></div>
+                                    </div>
+                                    <span class="toggle-status" id="toggle-vision-status">ACTIVO</span>
+                                </div>
+
+                                <!-- Terminal Toggle -->
+                                <div class="toggle-switch">
+                                    <label for="toggle-terminal">💻 Ejecución Real en Terminal</label>
+                                    <div class="toggle-track" id="toggle-terminal" data-key="ejecutor_real">
+                                        <div class="toggle-knob"></div>
+                                    </div>
+                                    <span class="toggle-status" id="toggle-terminal-status">MOCK (SIMULADO)</span>
+                                </div>
+
                                 <!-- Vision Capture Frequency -->
                                 <div class="slider-control">
                                     <label for="slider-vision-freq">👁️ Frecuencia de captura visual</label>
@@ -358,6 +385,10 @@
                                     <input type="password" id="cred-lmstudio" placeholder="LMSTUDIO_API_KEY" style="font-family:'Share Tech Mono',monospace;">
                                     <button class="cred-btn" data-key="LMSTUDIO_API_KEY" data-input="cred-lmstudio">💾</button>
                                 </div>
+                                <div class="cred-row">
+                                    <input type="password" id="cred-tavily" placeholder="TAVILY_API_KEY" style="font-family:'Share Tech Mono',monospace;">
+                                    <button class="cred-btn" data-key="TAVILY_API_KEY" data-input="cred-tavily">💾</button>
+                                </div>
                                 <div style="font-size:9px;color:#5d6f83;font-style:italic;">Las claves se guardan en .env del servidor</div>
                             </div>
                         </div>
@@ -365,6 +396,21 @@
 
                     <!-- SPA VIEW: Modelos Dinámicos -->
                     <div class="spa-view" data-view="modelos">
+                        <div class="module-section" style="margin-bottom: 12px;">
+                            <div class="module-header">
+                                <span class="module-icon">📥</span>
+                                <span class="module-title">DESCARGAR MODELO (OLLAMA)</span>
+                                <span class="module-toggle" style="visibility: hidden;">−</span>
+                            </div>
+                            <div class="module-content" style="display: flex; flex-direction: column; gap: 8px; padding: 10px;">
+                                <div style="display: flex; gap: 8px;">
+                                    <input type="text" id="input-pull-model" placeholder="Ej: llama3.2:latest, deepseek-r1:8b" style="flex-grow: 1; background: #080b0e; border: 1px solid rgba(0,243,255,0.3); color: white; padding: 6px 10px; font-family: inherit; font-size: 11px; outline: none; border-radius: 4px;">
+                                    <button id="btn-pull-model" style="background: rgba(0,243,255,0.1); border: 1px solid #00f3ff; color: #00f3ff; font-family: inherit; padding: 6px 14px; font-size: 11px; border-radius: 4px; cursor: pointer; transition: all 0.2s;">DESCARGAR</button>
+                                </div>
+                                <div id="pull-status" style="font-size: 10px; color: #39ff14; display: none;">Descargando... esto puede tardar unos minutos.</div>
+                            </div>
+                        </div>
+
                         <div class="module-section">
                             <div class="module-header">
                                 <span class="module-icon">🔌</span>

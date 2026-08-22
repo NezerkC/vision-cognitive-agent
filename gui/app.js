@@ -87,8 +87,8 @@ function initThreeJS() {
     graphInstance = ForceGraph3D()(container)
         .backgroundColor('rgba(0, 0, 0, 0)')
         .showNavInfo(false)
-        .width(container.clientWidth)
-        .height(container.clientHeight)
+        .width(container.clientWidth || 300)
+        .height(container.clientHeight || 500)
         .nodeColor(node => {
             const txt = (node.texto || "").toLowerCase();
             if (txt.includes("anomalia") || txt.includes("error") || txt.includes("panic")) return "#ff00ff";
@@ -113,10 +113,26 @@ function initThreeJS() {
     graphInstance.d3Force('charge').strength(-80);
     graphInstance.d3Force('link').distance(40);
 
-    window.addEventListener("resize", () => {
-        graphInstance.width(container.clientWidth);
-        graphInstance.height(container.clientHeight);
+    // Setup ResizeObserver to handle precise client size updates
+    const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+            const width = Math.floor(entry.contentRect.width || container.clientWidth);
+            const height = Math.floor(entry.contentRect.height || container.clientHeight);
+            if (graphInstance && width > 0 && height > 0) {
+                graphInstance.width(width);
+                graphInstance.height(height);
+            }
+        }
     });
+    resizeObserver.observe(container);
+
+    // Initial deferred trigger to guarantee layout calculation
+    setTimeout(() => {
+        if (graphInstance && container.clientWidth > 0) {
+            graphInstance.width(container.clientWidth);
+            graphInstance.height(container.clientHeight);
+        }
+    }, 150);
 }
 
 // ===========================================================================
@@ -295,7 +311,12 @@ function handleBrokerEvent(event) {
 
     } else if (topic === "canal.sistema.contexto_actual") {
         const contexto = data.contexto || "";
-        if (contexto.includes("ANOMALIA_DETECTADA:")) {
+        const cleanContext = contexto.trim();
+        const hasAnomaly = cleanContext.startsWith("ANOMALIA_DETECTADA:") || 
+                            cleanContext.startsWith("**ANOMALIA_DETECTADA:**") ||
+                            cleanContext.startsWith("### ANOMALIA_DETECTADA:") ||
+                            cleanContext.startsWith("### **ANOMALIA_DETECTADA:**");
+        if (hasAnomaly) {
             addTerminalLog(`🚨 [ANOMALÍA] ${contexto}`, "resp-anomalia");
             pulseMemoryCubes(0xff9900);
             // Update amigdala panel
@@ -590,7 +611,7 @@ function setupEventListeners() {
     const PROVIDERS_TEMPLATES = {
         ollama: {
             name: "Ollama (Local / Offline)",
-            api_base: "http://localhost:11434/v1",
+            api_base: "http://localhost:11434",
             placeholder_key: "No requiere API Key",
             models: ["llama3.2:latest","qwen2.5-coder:14b","deepseek-r1:14b","llama3.1:latest","gemma4:latest","minicpm-v:latest"]
         },
@@ -1106,19 +1127,82 @@ async function updateMemoryNodes() {
 // ===========================================================================
 // 9. Helper UI Actions
 // ===========================================================================
+let logIdCounter = 0;
+const logRegistry = {};
+
+function inspectLog(logId) {
+    const inspector = document.getElementById("inspector-logs");
+    if (!inspector) return;
+    
+    const fullText = logRegistry[logId];
+    if (!fullText) return;
+    
+    // Replace markdown double asterisks and single asterisks with HTML
+    let formattedText = fullText
+        .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*(.*?)\*/g, "<em>$1</em>");
+        
+    // Format newlines
+    formattedText = formattedText.replace(/\n/g, "<br>");
+    
+    inspector.innerHTML = `
+        <div style="display: flex; justify-content: space-between; font-size: 8px; color: #5d6f83; border-bottom: 1px dashed rgba(0, 243, 255, 0.2); padding-bottom: 4px; margin-bottom: 8px; font-family: 'Share Tech Mono', monospace;">
+            <span>LOG ID: ${logId}</span>
+            <span>DETALLE ACTIVO</span>
+        </div>
+        <div class="inspector-content-text" style="font-family: 'Share Tech Mono', monospace; word-break: break-word; color: #e0e5eb;">${formattedText}</div>
+    `;
+    inspector.scrollTop = 0;
+}
+
 function addTerminalLog(text, className) {
     const logBox = document.getElementById("terminal-logs");
     if (!logBox) return;
 
     const line = document.createElement("div");
     line.className = `log-line ${className}`;
-    line.textContent = text;
-    logBox.appendChild(line);
+    
+    const id = `log-${++logIdCounter}`;
+    logRegistry[id] = text;
+    line.dataset.logId = id;
 
+    // Check if the message is too long and needs truncation
+    const maxLen = 160;
+    if (text.length > maxLen) {
+        const truncated = text.substring(0, maxLen - 25) + "...";
+        line.textContent = truncated;
+        
+        const btn = document.createElement("span");
+        btn.className = "inspect-btn";
+        btn.style.color = "#00f3ff";
+        btn.style.cursor = "pointer";
+        btn.style.textDecoration = "underline";
+        btn.style.fontWeight = "bold";
+        btn.style.marginLeft = "6px";
+        btn.textContent = "[ver detalles]";
+        
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            inspectLog(id);
+        });
+        
+        line.appendChild(btn);
+    } else {
+        line.textContent = text;
+    }
+
+    logBox.appendChild(line);
     logBox.scrollTop = logBox.scrollHeight;
 
+    // Auto-inspect the latest message
+    inspectLog(id);
+
     while (logBox.children.length > 100) {
-        logBox.removeChild(logBox.firstChild);
+        const first = logBox.firstChild;
+        if (first && first.dataset && first.dataset.logId) {
+            delete logRegistry[first.dataset.logId];
+        }
+        logBox.removeChild(first);
     }
 }
 
@@ -1399,6 +1483,24 @@ function setupHardwareToggles() {
         });
     }
 
+    // Vision toggle (pause/resume vision)
+    const visionToggle = document.getElementById("toggle-vision");
+    const visionStatus = document.getElementById("toggle-vision-status");
+    if (visionToggle) {
+        visionToggle.addEventListener("click", () => {
+            const nowActive = visionToggle.classList.toggle("active");
+            const action = nowActive ? "reanudar" : "pausar";
+            if (visionStatus) visionStatus.textContent = nowActive ? "ACTIVO" : "PAUSADO";
+
+            sendWebSocketMessage("canal.sistema.comando", {
+                "comando": "vision",
+                "accion": action
+            });
+
+            addTerminalLog(`👁️ Visión: ${action === "pausar" ? "PAUSADA" : "REANUDADA"} por comando de usuario.`, "system-msg");
+        });
+    }
+
     // Vision frequency slider
     const visionFreq = document.getElementById("slider-vision-freq");
     const visionFreqVal = document.getElementById("slider-vision-freq-val");
@@ -1449,6 +1551,56 @@ function setupHardwareToggles() {
             addTerminalLog(`🧬 Perfil nervioso cambiado a: ${val}.`, "system-msg");
         });
     }
+
+    // Terminal toggle (real/mock terminal execution)
+    const terminalToggle = document.getElementById("toggle-terminal");
+    const terminalStatus = document.getElementById("toggle-terminal-status");
+    if (terminalToggle) {
+        // Load initial state
+        fetch(`http://${HOST}:${API_PORT}/api/config/arranque`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === "success" && data.config) {
+                    const isMock = data.config.modos_mock && data.config.modos_mock.ejecutor_izquierdo;
+                    const nowActive = !isMock; // Real active = not mock
+                    if (nowActive) {
+                        terminalToggle.classList.add("active");
+                        if (terminalStatus) terminalStatus.textContent = "ACTIVO (REAL)";
+                    } else {
+                        terminalToggle.classList.remove("active");
+                        if (terminalStatus) terminalStatus.textContent = "MOCK (SIMULADO)";
+                    }
+                }
+            })
+            .catch(() => {});
+
+        terminalToggle.addEventListener("click", async () => {
+            const nowActive = terminalToggle.classList.toggle("active");
+            if (terminalStatus) terminalStatus.textContent = nowActive ? "ACTIVO (REAL)" : "MOCK (SIMULADO)";
+
+            try {
+                // Fetch current config first
+                const r = await fetch(`http://${HOST}:${API_PORT}/api/config/arranque`);
+                const res = await r.json();
+                if (res.status === "success" && res.config) {
+                    const cfg = res.config;
+                    if (!cfg.modos_mock) cfg.modos_mock = {};
+                    cfg.modos_mock.ejecutor_izquierdo = !nowActive; // Mock = not active
+                    
+                    // Save updated config
+                    await fetch(`http://${HOST}:${API_PORT}/api/config/arranque`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(cfg)
+                    });
+                    
+                    addTerminalLog(`💻 Ejecutor Terminal: cambiado a modo ${nowActive ? "REAL" : "SIMULADO"}.`, "system-msg");
+                }
+            } catch (err) {
+                addTerminalLog(`❌ Error al actualizar configuración de arranque: ${err}`, "resp-error");
+            }
+        });
+    }
 }
 
 // ===========================================================================
@@ -1465,7 +1617,8 @@ function setupCredentialSaving() {
                         "OPENROUTER_API_KEY": "cred-openrouter",
                         "OPENAI_API_KEY": "cred-openai",
                         "ANTHROPIC_API_KEY": "cred-anthropic",
-                        "LMSTUDIO_API_KEY": "cred-lmstudio"
+                        "LMSTUDIO_API_KEY": "cred-lmstudio",
+                        "TAVILY_API_KEY": "cred-tavily"
                     };
                     const inputId = inputMap[key];
                     if (inputId && value) {
@@ -1521,10 +1674,11 @@ async function fetchAndRenderModels() {
     if (loading) loading.style.display = "block";
 
     try {
-        // Fetch from both mapper endpoints in parallel
-        const [openrouterResp, lmstudioResp, configResp] = await Promise.allSettled([
+        // Fetch from all mapper endpoints in parallel
+        const [openrouterResp, lmstudioResp, ollamaResp, configResp] = await Promise.allSettled([
             fetch(`http://${HOST}:${API_PORT}/api/modelos/openrouter`).then(r => r.json()).catch(() => null),
             fetch(`http://${HOST}:${API_PORT}/api/modelos/lmstudio`).then(r => r.json()).catch(() => null),
+            fetch(`http://${HOST}:${API_PORT}/api/modelos/ollama`).then(r => r.json()).catch(() => null),
             fetch(`http://${HOST}:${API_PORT}/api/config`).then(r => r.json()).catch(() => null)
         ]);
 
@@ -1535,13 +1689,33 @@ async function fetchAndRenderModels() {
 
         // OpenRouter provider card
         const orData = openrouterResp.status === "fulfilled" && openrouterResp.value ? openrouterResp.value : null;
-        if (orData && orData.modelos && orData.modelos.length > 0) {
+        if (orData && ((orData.gratuitos && orData.gratuitos.length > 0) || (orData.pago && orData.pago.length > 0))) {
             html += `<div class="provider-card">
-                <h4>🌐 OpenRouter</h4>
+                <h4>🌐 OpenRouter (Modelos)</h4>
+                <div style="display:flex;flex-direction:column;gap:6px;">`;
+            
+            if (orData.gratuitos && orData.gratuitos.length > 0) {
+                html += `<div><strong style="font-size: 10px; color: #39ff14;">Gratuitos:</strong></div>
                 <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
-            orData.modelos.forEach(m => {
-                html += `<span class="provider-model"><code>${escapeHtml(m)}</code></span>`;
-            });
+                orData.gratuitos.forEach(m => {
+                    html += `<span class="provider-model" title="Contexto: ${m.context_length}"><code>${escapeHtml(m.id)}</code></span>`;
+                });
+                html += `</div>`;
+            }
+            
+            if (orData.pago && orData.pago.length > 0) {
+                html += `<div style="margin-top:4px;"><strong style="font-size: 10px; color: #00f3ff;">Pago/Destacados:</strong></div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
+                // Show first 25 paid models to avoid cluttering
+                orData.pago.slice(0, 25).forEach(m => {
+                    html += `<span class="provider-model" title="Contexto: ${m.context_length}"><code>${escapeHtml(m.id)}</code></span>`;
+                });
+                if (orData.pago.length > 25) {
+                    html += `<span style="color:#5d6f83;font-size:9px;align-self:center;margin-left:4px;">(+${orData.pago.length - 25} más)</span>`;
+                }
+                html += `</div>`;
+            }
+            
             html += `</div></div>`;
         }
 
@@ -1555,6 +1729,23 @@ async function fetchAndRenderModels() {
                 html += `<span class="provider-model"><code>${escapeHtml(m)}</code></span>`;
             });
             html += `</div></div>`;
+        }
+
+        // Ollama provider card
+        const olData = ollamaResp.status === "fulfilled" && ollamaResp.value ? ollamaResp.value : null;
+        if (olData && olData.modelos && olData.modelos.length > 0) {
+            html += `<div class="provider-card">
+                <h4>🦙 Ollama (Locales)</h4>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
+            olData.modelos.forEach(m => {
+                html += `<span class="provider-model"><code>${escapeHtml(m.id)}</code></span>`;
+            });
+            html += `</div></div>`;
+        } else if (olData && olData.status === "offline") {
+            html += `<div class="provider-card">
+                <h4>🦙 Ollama (Locales)</h4>
+                <div style="color: #ff4d4d; font-size: 11px;">⚠️ Offline: ${escapeHtml(olData.error)}</div>
+            </div>`;
         }
 
         // Registered models from config
@@ -1583,3 +1774,51 @@ async function fetchAndRenderModels() {
         console.error("Error fetching models:", err);
     }
 }
+
+// Bind Ollama pull button
+document.addEventListener("DOMContentLoaded", () => {
+    const btnPull = document.getElementById("btn-pull-model");
+    const inputPull = document.getElementById("input-pull-model");
+    const statusPull = document.getElementById("pull-status");
+
+    if (btnPull && inputPull && statusPull) {
+        btnPull.addEventListener("click", async () => {
+            const modelName = inputPull.value.trim();
+            if (!modelName) {
+                addTerminalLog("⚠️ Por favor ingresá un tag de modelo válido (ej: llama3.2:latest).", "resp-error");
+                return;
+            }
+
+            btnPull.disabled = true;
+            statusPull.style.display = "block";
+            statusPull.style.color = "#39ff14";
+            statusPull.textContent = `Descargando ${modelName}... por favor espera, esto puede tomar unos minutos.`;
+            addTerminalLog(`📥 Iniciando descarga de Ollama: ${modelName}`, "system-msg");
+
+            try {
+                const resp = await fetch(`http://${HOST}:${API_PORT}/api/modelos/ollama/pull`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ modelo: modelName })
+                });
+                const data = await resp.json();
+                if (data.status === "success") {
+                    addTerminalLog(`✅ Modelo ${modelName} descargado e instalado con éxito en Ollama.`, "resp-success");
+                    statusPull.textContent = `✅ ¡Descargado! ${modelName}`;
+                    inputPull.value = "";
+                    fetchAndRenderModels(); // Refresh list
+                } else {
+                    addTerminalLog(`❌ Falló la descarga de ${modelName}: ${data.message}`, "resp-error");
+                    statusPull.style.color = "#ff3333";
+                    statusPull.textContent = `❌ Falló la descarga: ${data.message}`;
+                }
+            } catch (err) {
+                addTerminalLog(`❌ Error de conexión al descargar modelo: ${err}`, "resp-error");
+                statusPull.style.color = "#ff3333";
+                statusPull.textContent = `❌ Error de conexión.`;
+            } finally {
+                btnPull.disabled = false;
+            }
+        });
+    }
+});

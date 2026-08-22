@@ -144,7 +144,7 @@ body {
 /* MAIN CONTENT GRID */
 .hud-main {
     display: grid;
-    grid-template-columns: 350px 1fr 340px;
+    grid-template-columns: minmax(380px, 1fr) 300px minmax(360px, 1fr);
     gap: 20px;
     flex-grow: 1;
     height: calc(100vh - 100px);
@@ -181,7 +181,8 @@ body {
 }
 
 .terminal-box {
-    flex-grow: 1;
+    height: 300px;
+    flex-shrink: 0;
     overflow-y: auto;
     padding: 15px;
     font-size: 12px;
