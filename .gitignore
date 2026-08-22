@@ -8,3 +8,14 @@ __pycache__/
 .env
 .env.local
 .env.*
+
+# Runtime logs and traces
+*.log
+logs/
+.opencode/
+
+# Caches and runtime state
+.atl/
+config/.health_status.json
+memoria_activa/
+
