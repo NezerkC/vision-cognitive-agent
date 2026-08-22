@@ -1,13 +1,14 @@
 import asyncio
+import base64
+import io
 import json
 import logging
 import os
 import sys
 import time
-import base64
-import io
-from PIL import Image, ImageChops, ImageStat
+
 import mss
+from PIL import Image, ImageChops, ImageStat
 
 # Attempt to load OpenCV
 cv2 = None
@@ -35,12 +36,13 @@ class VisionParietal:
         self.host = host
         self.port = port
         self.force_mock = force_mock
-        
+
         # Capture settings
         self.interval = 5.0
         self.monitor_index = 1
         self.diff_threshold = 0.01
-        
+        self.pausado = False
+
         # Camera settings
         self.camara_activa = False
         self.camara_index = 0
@@ -52,7 +54,7 @@ class VisionParietal:
 
         self.last_image = None
         self.sct = None
-        
+
         if not self.force_mock:
             try:
                 self.sct = mss.mss()
@@ -63,18 +65,18 @@ class VisionParietal:
 
     def load_config(self):
         try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
                 cfg = json.load(f)
             vision_cfg = cfg.get("vision_activa", {})
             self.interval = float(vision_cfg.get("interval_seconds", 5.0))
             self.monitor_index = int(vision_cfg.get("monitor_index", 1))
             self.diff_threshold = float(vision_cfg.get("difference_threshold", 0.01))
-            
+
             # Load camera settings
             self.camara_activa = vision_cfg.get("camara_activa", False)
             self.camara_index = int(vision_cfg.get("camara_index", 0))
             self.camera_ip = vision_cfg.get("camera_ip", "").strip()
-            
+
             logger.info(f"Loaded config: interval={self.interval}s, monitor={self.monitor_index}, threshold={self.diff_threshold}, camera={self.camara_activa} (index={self.camara_index}, IP='{self.camera_ip}')")
         except Exception as e:
             logger.warning(f"Failed to load config: {e}. Using default values.")
@@ -163,8 +165,24 @@ class VisionParietal:
                 except json.JSONDecodeError:
                     continue
 
-                if event.get("topic") == "system":
-                    data = event.get("data", {})
+                topic = event.get("topic")
+                data = event.get("data", {})
+
+                if topic == "canal.sistema.comando":
+                    comando = data.get("comando")
+                    accion = data.get("accion")
+                    if comando == "vision":
+                        if accion == "pausar":
+                            self.pausado = True
+                            logger.info("👁️ Visión Parietal PAUSADA por comando de canal.sistema.comando.")
+                        elif accion == "reanudar":
+                            self.pausado = False
+                            logger.info("👁️ Visión Parietal REANUDADA por comando de canal.sistema.comando.")
+                        elif accion == "frecuencia":
+                            self.interval = float(data.get("valor", 5.0))
+                            logger.info(f"👁️ Visión Parietal: intervalo de captura cambiado a {self.interval}s.")
+
+                elif topic == "system":
                     action = data.get("action")
                     if action == "reload_hardware_config":
                         logger.info("👁️ Visión Parietal: Recargando configuración de hardware...")
@@ -177,7 +195,7 @@ class VisionParietal:
                                 "arranque.yaml"
                             )
                             if os.path.exists(arr_path):
-                                with open(arr_path, "r", encoding="utf-8") as f:
+                                with open(arr_path, encoding="utf-8") as f:
                                     import yaml
                                     arr_cfg = yaml.safe_load(f)
                                 mock_flag = arr_cfg.get("modos_mock", {}).get("vision_parietal", True)
@@ -203,7 +221,7 @@ class VisionParietal:
                 monitor = self.sct.monitors[1]
             else:
                 monitor = self.sct.monitors[self.monitor_index]
-            
+
             sct_img = self.sct.grab(monitor)
             # Convert mss format to PIL Image
             img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
@@ -224,11 +242,11 @@ class VisionParietal:
             size = (32, 32)
             curr_thumb = current_img.resize(size).convert("L")
             last_thumb = self.last_image.resize(size).convert("L")
-            
+
             diff = ImageChops.difference(curr_thumb, last_thumb)
             stat = ImageStat.Stat(diff)
             mean_diff = stat.mean[0] / 255.0  # normalized to [0, 1]
-            
+
             logger.debug(f"Normalized screenshot pixel difference: {mean_diff:.4f}")
             return mean_diff > self.diff_threshold
         except Exception as e:
@@ -250,7 +268,7 @@ class VisionParietal:
                 # Register system topics
                 subscribe_msg = json.dumps({
                     "action": "subscribe",
-                    "topics": ["system"]
+                    "topics": ["system", "canal.sistema.comando"]
                 }) + "\n"
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
@@ -260,12 +278,16 @@ class VisionParietal:
 
                 while True:
                     loop_start = time.time()
-                    
+
+                    if self.pausado:
+                        await asyncio.sleep(0.5)
+                        continue
+
                     # Capture frame in threadpool to avoid blocking event loop
                     loop = asyncio.get_running_loop()
                     img = await loop.run_in_executor(None, self.capture_screenshot)
                     screen_changed = self.has_changed(img)
-                    
+
                     cam_b64 = await loop.run_in_executor(None, self.capture_camera)
 
                     if screen_changed or cam_b64:
@@ -278,7 +300,7 @@ class VisionParietal:
                             if not hasattr(self, 'last_img_b64') or self.last_img_b64 is None:
                                 self.last_img_b64 = await loop.run_in_executor(None, self.image_to_base64, img)
                             img_b64 = self.last_img_b64
-                        
+
                         # Publish combined vision capture event
                         payload = {
                             "action": "publish",

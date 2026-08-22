@@ -3,8 +3,9 @@ import json
 import logging
 import os
 import sys
-import yaml
+
 import litellm
+import yaml
 
 # Add local path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -44,12 +45,24 @@ class LLMRouter:
 
     def load_config(self):
         try:
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
                 self.config = yaml.safe_load(f)
             logger.info("Configuration loaded successfully.")
         except Exception as e:
             logger.error(f"Failed to load router config: {e}")
-            self.config = {}
+        self.benchmarks = {}
+        try:
+            benchmark_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "config",
+                "model_benchmarks.json"
+            )
+            if os.path.exists(benchmark_path):
+                with open(benchmark_path, encoding="utf-8") as f:
+                    self.benchmarks = json.load(f)
+                logger.info(f"Loaded {len(self.benchmarks)} model benchmarks.")
+        except Exception as e:
+            logger.warning(f"Could not load model benchmarks: {e}")
 
     def get_model_config(self, effort: str) -> dict:
         strategy = self.config.get("routing_strategy")
@@ -57,7 +70,7 @@ class LLMRouter:
         if strategy and strategy in strategies:
             logger.info(f"Routing using strategy: '{strategy}'")
             return strategies[strategy].get(effort, {})
-        
+
         # Fallback to old flat models block if strategy is missing
         models_cfg = self.config.get("models", {})
         return models_cfg.get(effort, {})
@@ -79,7 +92,7 @@ class LLMRouter:
         max_tokens = 512
         try:
             if os.path.exists(EFFORT_LEVELS_PATH):
-                with open(EFFORT_LEVELS_PATH, "r", encoding="utf-8") as f:
+                with open(EFFORT_LEVELS_PATH, encoding="utf-8") as f:
                     el_data = json.load(f)
                     effort_cfg = el_data.get(effort, {})
                     temp = effort_cfg.get("temperature", temp)
@@ -90,7 +103,7 @@ class LLMRouter:
         # Load emotions and override temperature
         try:
             if os.path.exists(EMOTIONS_PATH):
-                with open(EMOTIONS_PATH, "r", encoding="utf-8") as f:
+                with open(EMOTIONS_PATH, encoding="utf-8") as f:
                     em_data = json.load(f)
                     estado = em_data.get("estado", "neutral").lower()
                     if estado in ["intriga", "creativo"]:
@@ -131,8 +144,23 @@ class LLMRouter:
                 model_name.startswith("ollama/") or
                 (api_base and any(h in (api_base or "").lower() for h in ["localhost:11434", "localhost:1234", "127.0.0.1:11434", "127.0.0.1:1234"]))
             )
-            timeout_segundos = 60.0 if es_local else 15.0
-            logger.info(f"Timeout configured as {timeout_segundos}s for model {model_name} (local={es_local})")
+
+            timeout_segundos = 30.0
+            if es_local:
+                # Resolve base model name (without 'ollama/' prefix if saved that way)
+                base_model = model_name[7:] if model_name.startswith("ollama/") else model_name
+                # Check if we have a measured benchmark for this model
+                benchmark_data = self.benchmarks.get(base_model) or self.benchmarks.get(model_name)
+                if benchmark_data and benchmark_data.get("status") == "success":
+                    measured_time = float(benchmark_data.get("time_seconds", 30.0))
+                    # Allow 2.5x the measured benchmark time as timeout buffer, minimum 45 seconds
+                    timeout_segundos = max(measured_time * 2.5, 45.0)
+                    logger.info(f"Using dynamic benchmarked timeout: {timeout_segundos:.2f}s for local model {model_name} (measured={measured_time:.2f}s)")
+                else:
+                    timeout_segundos = 300.0  # Default generous timeout for unbenchmarked local models
+                    logger.info(f"No benchmark found for local model {model_name}. Defaulting to {timeout_segundos}s.")
+            else:
+                logger.info(f"Timeout configured as {timeout_segundos}s for cloud model {model_name}.")
 
             response = await litellm.acompletion(
                 model=model_name,
@@ -149,9 +177,36 @@ class LLMRouter:
             logger.warning(f"Failed LLM call for model {model_name}: {e}")
             if fallback:
                 logger.info(f"Falling back from '{effort}' to '{fallback}'...")
-                return await self.call_llm(fallback, prompt, mock)
-            else:
-                raise e
+                try:
+                    return await self.call_llm(fallback, prompt, mock)
+                except Exception as fb_err:
+                    logger.warning(f"Fallback '{fallback}' also failed: {fb_err}")
+
+            # If the strategy/model call failed completely, attempt to fall back to OpenRouter API
+            if "openrouter" not in model_name.lower():
+                logger.warning("Local LLM call failed. Attempting global safety fallback to OpenRouter API...")
+                or_key = os.environ.get("OPENROUTER_API_KEY")
+                if or_key:
+                    try:
+                        logger.info("Calling OpenRouter fallback: google/gemini-2.5-flash:free")
+                        response = await litellm.acompletion(
+                            model="openrouter/google/gemini-2.5-flash:free",
+                            messages=[{"role": "user", "content": prompt}],
+                            timeout=20.0,
+                            temperature=temp,
+                            max_tokens=max_tokens,
+                            api_base="https://openrouter.ai/api/v1",
+                            api_key=or_key
+                        )
+                        response_text = response.choices[0].message.content
+                        logger.info("Successfully recovered using OpenRouter fallback!")
+                        return response_text, "openrouter/google/gemini-2.5-flash:free"
+                    except Exception as or_err:
+                        logger.error(f"OpenRouter fallback also failed: {or_err}")
+                else:
+                    logger.warning("OPENROUTER_API_KEY not found in environment. Cannot perform OpenRouter fallback.")
+
+            raise e
 
     async def publish_log(self, writer, message: str):
         event = {
@@ -167,7 +222,7 @@ class LLMRouter:
         except Exception as e:
             logger.error(f"Failed to publish log: {e}")
 
-    async def perform_memory_search(self, request_id: str, query: str) -> list:
+    async def perform_memory_search(self, request_id: str, query: str, emotion_filter: str = "neutral") -> list:
         """
         Publishes a search request to the LanceDB manager and awaits the response.
         """
@@ -185,7 +240,8 @@ class LLMRouter:
                 "action": "buscar",
                 "request_id": request_id,
                 "query": query,
-                "top_n": 3
+                "top_n": 3,
+                "emotion_filter": emotion_filter
             }
         }
         try:
@@ -266,7 +322,7 @@ class LLMRouter:
     async def process_request(self, writer, request_id: str, prompt: str, effort: str, mock: bool):
         try:
             await self.publish_log(writer, "🤖 [Lóbulo Frontal] Procesando petición en Tren de Información (Grafo)...")
-            
+
             # Execute StateGraph from orquestador_graph
             from orquestador_graph import ejecutar_orquestador_graph
             response_text = await ejecutar_orquestador_graph(prompt, request_id, mock)

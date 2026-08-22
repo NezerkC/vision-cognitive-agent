@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import sys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] TestPhase2: %(message)s")
 logger = logging.getLogger("TestPhase2")
@@ -10,7 +9,7 @@ async def test_workflow():
     # 1. Connect test client
     logger.info("Connecting to event broker...")
     reader, writer = await asyncio.open_connection("127.0.0.1", 5000)
-    
+
     # Subscribe to safety alerts and LLM responses
     subscribe_msg = json.dumps({
         "action": "subscribe",
@@ -73,7 +72,7 @@ async def test_workflow():
             line = await asyncio.wait_for(reader.readline(), timeout=3.0)
             if not line:
                 break
-            
+
             event = json.loads(line.decode("utf-8").strip())
             topic = event.get("topic")
             data = event.get("data", {})
@@ -84,10 +83,13 @@ async def test_workflow():
                     logger.info("VERIFICATION PASS: Safe prompt successfully processed.")
                     safe_success = True
 
-            elif topic == "canal.seguridad.alerta" and data.get("request_id") == unsafe_request_id:
-                if data.get("status") == "BLOCKED":
-                    logger.info("VERIFICATION PASS: Unsafe prompt was blocked by Amígdala.")
-                    unsafe_blocked = True
+            elif (
+                topic == "canal.seguridad.alerta"
+                and data.get("request_id") == unsafe_request_id
+                and data.get("status") == "BLOCKED"
+            ):
+                logger.info("VERIFICATION PASS: Unsafe prompt was blocked by Amígdala.")
+                unsafe_blocked = True
 
         # -------------------------------------------------------------
         # CASE 3: Panic button test
@@ -110,7 +112,7 @@ async def test_workflow():
             topic = event.get("topic")
             data = event.get("data", {})
             logger.info(f"Test client read event on topic '{topic}': {data}")
-            
+
             if topic == "canal.seguridad.alerta" and data.get("status") == "PANIC_ACTIVATED":
                 logger.info("VERIFICATION PASS: Panic alert was broadcasted.")
                 panic_triggered = True

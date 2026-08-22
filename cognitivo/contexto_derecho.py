@@ -1,10 +1,11 @@
 import asyncio
 import json
 import logging
-import sys
-import time
 import os
 import shutil
+import sys
+import time
+
 import psutil
 
 # Configure logging
@@ -79,7 +80,16 @@ class ContextoDerecho:
                             "topic": "canal.cognitivo.entrada",
                             "data": {
                                 "request_id": request_id,
-                                "prompt": "¿Qué está haciendo el usuario en esta captura? Si detectas que la pantalla muestra un mensaje de error, advertencia o pop-up de fallo, debes iniciar tu respuesta obligatoriamente con la etiqueta 'ANOMALIA_DETECTADA:' seguida del texto del error.",
+                                "prompt": (
+                                    "¿Qué está haciendo el usuario en esta captura? Analiza con suma precisión si la pantalla muestra "
+                                    "un mensaje de error, advertencia o pop-up de fallo. "
+                                    "IMPORTANTE: Ignora cualquier error, advertencia o la palabra 'ANOMALIA_DETECTADA' que esté dentro del propio "
+                                    "dashboard de 'Visión OS', de la 'Consola de Consciencia' o de las alertas del agente. Solo debes detectar e informar "
+                                    "errores reales de otras aplicaciones o del propio sistema operativo. "
+                                    "Si (y SOLO si) detectas un error o fallo real externo, debes iniciar tu respuesta obligatoriamente con la "
+                                    "etiqueta 'ANOMALIA_DETECTADA:' seguida del texto del error. Si la pantalla NO contiene ningún error o fallo externo, "
+                                    "describe lo que se observa normalmente sin incluir de ninguna manera la etiqueta 'ANOMALIA_DETECTADA' ni hacer referencia a fallos."
+                                ),
                                 "image_base64": img_b64,
                                 "esfuerzo_requerido": "esfuerzo_bajo",
                                 "mock": mock
@@ -136,11 +146,11 @@ class ContextoDerecho:
         logger.info("Scanning Host for available CLI tools...")
         # Common CLI tools to check
         clis = ["npm", "git", "docker", "python", "pip", "cargo", "go", "terraform", "kubectl", "gcloud"]
-        
+
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         skills_dir = os.path.join(project_root, "cognitivo", "skills")
         os.makedirs(skills_dir, exist_ok=True)
-        
+
         for cli in clis:
             # Check if command is available in PATH
             cli_path = shutil.which(cli)
@@ -149,7 +159,7 @@ class ContextoDerecho:
                 # Check if we already have a tool script for this CLI
                 tool_filename = f"{cli}_tool.py"
                 tool_path = os.path.join(skills_dir, tool_filename)
-                
+
                 # Check if it's already running in current processes
                 is_running = False
                 try:

@@ -49,7 +49,7 @@ class Amigdala:
         try:
             writer.write((json.dumps(purge_command) + "\n").encode("utf-8"))
             await writer.drain()
-            
+
             # Broadcast the alert to safety channels
             alert_event = {
                 "action": "publish",
@@ -113,7 +113,7 @@ class Amigdala:
                         is_unsafe, match_sig = self.check_prompt_injection(prompt)
                         if is_unsafe:
                             logger.critical(f"PROMPT INJECTION BLOCKED for request {request_id}: Found signature '{match_sig}'")
-                            
+
                             # Publish safety alert
                             alert_event = {
                                 "action": "publish",

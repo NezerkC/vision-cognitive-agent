@@ -140,12 +140,12 @@ class WebSearchEngine:
 
         Args:
             query: The search query.
-            max_results: Maximum number of results (default: 5, max: 10).
+            max_results: Maximum number of results (default: 5, max: 50).
 
         Returns:
             A SearchResponse with results from the first successful backend.
         """
-        max_results = min(max_results, 10)  # Hard cap
+        max_results = min(max_results, 50)  # Expanded cap for deep search
         if not query or not query.strip():
             return SearchResponse(
                 status="error",
@@ -153,6 +153,9 @@ class WebSearchEngine:
                 source="mock",
                 error="Empty query",
             )
+
+        if max_results > 10:
+            return await self.buscar_profundo(query, max_results=max_results)
 
         # 1. Check cache
         cached = self.cache.get(query, max_results)
@@ -183,6 +186,60 @@ class WebSearchEngine:
             results=[],
             source="mock",
             error="All search backends failed. Check network or API keys.",
+        )
+
+    async def buscar_profundo(self, query: str, max_results: int = 25) -> SearchResponse:
+        """
+        Ejecuta una búsqueda web profunda multitemática (>20 fuentes),
+        recolectando resultados de webs generales, foros (Reddit, StackOverflow, etc.),
+        vídeos/recursos multimedia y artículos de datos.
+        """
+        subqueries = [
+            query,
+            f"{query} foros comunidad reddit stackoverflow",
+            f"{query} tutorial explicacion video guia",
+            f"{query} datos ejemplos documentacion"
+        ]
+
+        seen_urls = set()
+        combined_results: list[SearchResult] = []
+
+        for sub_q in subqueries:
+            try:
+                res_ddg = await self._search_ddg(sub_q, max_results=12)
+                for item in res_ddg:
+                    if item.url and item.url not in seen_urls:
+                        seen_urls.add(item.url)
+                        combined_results.append(item)
+            except Exception as e:
+                logger.warning(f"Sub-search DDG falló para '{sub_q}': {e}")
+
+            if len(combined_results) >= max_results:
+                break
+
+        # Si aún no llegamos al objetivo o DDG tuvo pocas respuestas, intentar Tavily
+        if len(combined_results) < max_results:
+            try:
+                res_tavily = await self._search_tavily(query, max_results=max_results)
+                for item in res_tavily:
+                    if item.url and item.url not in seen_urls:
+                        seen_urls.add(item.url)
+                        combined_results.append(item)
+            except Exception:
+                pass
+
+        if combined_results:
+            return SearchResponse(
+                status="success",
+                results=combined_results[:max_results],
+                source="duckduckgo"
+            )
+
+        return SearchResponse(
+            status="error",
+            results=[],
+            source="mock",
+            error="No se pudieron obtener suficientes resultados en la búsqueda profunda."
         )
 
     async def _search_ddg(self, query: str, max_results: int) -> list[SearchResult]:

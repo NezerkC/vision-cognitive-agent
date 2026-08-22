@@ -15,7 +15,6 @@ import json
 import logging
 import os
 import sys
-import time
 
 # ─────────────────────────────────────────────────────────────────
 # Configurar logging
@@ -176,7 +175,7 @@ async def ingerir_desde_archivo(
 
     logger.info(f"📂 Leyendo archivo local: {ruta}")
     ejemplos = []
-    with open(ruta, "r", encoding="utf-8") as f:
+    with open(ruta, encoding="utf-8") as f:
         for linea in f:
             linea = linea.strip()
             if linea:

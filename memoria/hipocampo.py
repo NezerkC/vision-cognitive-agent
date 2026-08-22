@@ -80,7 +80,7 @@ class Hipocampo:
                         # Extract last 20 messages for consolidation
                         last_20 = history[-20:]
                         conversation_block = "\n".join(last_20)
-                        
+
                         logger.info(f"Consolidating memory for task: {task_id}. Length of history: {len(last_20)} lines.")
 
                         request_id = f"hipo-{task_id}"
@@ -127,9 +127,9 @@ class Hipocampo:
                                 continue
 
                             logger.info(f"Consolidated summary received for task {task_id}.")
-                            
+
                             tags = self.parse_tags_from_summary(response_text)
-                            
+
                             # Publish memory storage command (Lóbulo Temporal)
                             save_event = {
                                 "action": "publish",

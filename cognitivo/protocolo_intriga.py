@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+
 import aiohttp
 
 # Configure logging
@@ -20,7 +21,7 @@ class ProtocoloIntriga:
         self.host = host
         self.port = port
         self.is_mock = is_mock
-        
+
         # State tracking
         self.active_error = None
         self.waiting_for_confirmation = False
@@ -63,20 +64,38 @@ class ProtocoloIntriga:
                         return "Búsqueda web completada sin resultados."
                     else:
                         logger.warning(f"Tavily returned HTTP {resp.status}. Falling back to simulation.")
-                        return f"Solución alternativa: Error de hardware en iGPU/AMD. Actualice drivers."
+                        return "Solución alternativa: Error de hardware en iGPU/AMD. Actualice drivers."
         except Exception as e:
             logger.error(f"Error during Tavily search: {e}")
-            return f"Solución alternativa: Fallo de red. Instale ffmpeg y actualice drivers."
+            return "Solución alternativa: Fallo de red. Instale ffmpeg y actualice drivers."
 
     async def process_context(self, context_str: str, writer):
         """
         Scans interpreted contexts for error flags and triggers the ticketing process.
         """
-        if "ANOMALIA_DETECTADA:" not in context_str:
+        clean_context = context_str.strip()
+        has_anomaly = False
+        prefix_to_split = "ANOMALIA_DETECTADA:"
+
+        # Check potential prefix matches at the start of the string
+        if clean_context.startswith("ANOMALIA_DETECTADA:"):
+            has_anomaly = True
+            prefix_to_split = "ANOMALIA_DETECTADA:"
+        elif clean_context.startswith("**ANOMALIA_DETECTADA:**"):
+            has_anomaly = True
+            prefix_to_split = "**ANOMALIA_DETECTADA:**"
+        elif clean_context.startswith("### ANOMALIA_DETECTADA:"):
+            has_anomaly = True
+            prefix_to_split = "### ANOMALIA_DETECTADA:"
+        elif clean_context.startswith("### **ANOMALIA_DETECTADA:**"):
+            has_anomaly = True
+            prefix_to_split = "### **ANOMALIA_DETECTADA:**"
+
+        if not has_anomaly:
             return
 
-        error_text = context_str.split("ANOMALIA_DETECTADA:", 1)[1].strip()
-        
+        error_text = clean_context.split(prefix_to_split, 1)[1].strip()
+
         # Debounce/deduplicate consecutive identical error reports within 15 seconds
         current_time = time.time()
         if error_text == self.last_reported_error and (current_time - self.last_report_time) < 15.0:
@@ -84,12 +103,12 @@ class ProtocoloIntriga:
 
         self.last_reported_error = error_text
         self.last_report_time = current_time
-        
+
         self.active_error = error_text
         self.waiting_for_confirmation = False
 
         logger.info(f"Anomalía detectada en pantalla: '{error_text}'")
-        
+
         # Print a highlighted message for the developer
         print(f"\n\033[93m[ALERTA DE INTRIGA] Error detectado: '{error_text}'\033[0m")
         print("\033[92mGenerando ticket de situación e iniciando investigación automática en la web...\033[0m\n")
@@ -155,17 +174,17 @@ class ProtocoloIntriga:
             if clean_code.endswith("```"):
                 clean_code = clean_code[:-3]
             clean_code = clean_code.strip()
-            
+
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             skills_dir = os.path.join(project_root, "cognitivo", "skills")
             os.makedirs(skills_dir, exist_ok=True)
             tool_path = os.path.join(skills_dir, f"{cli_name}_tool.py")
-            
+
             try:
                 with open(tool_path, "w", encoding="utf-8") as f:
                     f.write(clean_code)
                 logger.info(f"🎉 [Capacitación] Nueva herramienta guardada físicamente en: {tool_path}")
-                
+
                 save_payload = {
                     "action": "publish",
                     "topic": "canal.memoria",
@@ -174,7 +193,8 @@ class ProtocoloIntriga:
                         "text": f"Aprendí a usar la CLI '{cli_name}'. Se creó y registró la herramienta en '{tool_path}'. Código:\n{clean_code}",
                         "coordenada_x": 2.0,
                         "coordenada_y": 3.0,
-                        "temperatura_z": 100.0,
+                        "coordenada_z": 0.0,
+                        "coordenada_w": 100.0,
                         "escala_magnitud": "KB",
                         "metadata": {
                             "tipo": "auto_capacitacion",
@@ -195,7 +215,7 @@ class ProtocoloIntriga:
             return
 
         logger.info(f"Search query formulated by Lóbulo Frontal: '{response_text}'")
-        
+
         # 1. Run web search
         solution = await self.call_tavily_search(response_text)
         logger.info("Search solution compiled successfully.")
@@ -209,7 +229,8 @@ class ProtocoloIntriga:
                 "text": f"Error: {self.active_error}\nBúsqueda: {response_text}\nSolución: {solution}",
                 "coordenada_x": 1.5,
                 "coordenada_y": 2.5,
-                "temperatura_z": 100.0,
+                "coordenada_z": 0.0,
+                "coordenada_w": 100.0,
                 "escala_magnitud": "KB",
                 "metadata": {
                     "tipo": "solucion_error",
@@ -221,10 +242,10 @@ class ProtocoloIntriga:
         try:
             writer.write((json.dumps(save_payload) + "\n").encode("utf-8"))
             await writer.drain()
-            logger.info(f"Solution memory saved to LanceDB. Error ticket closed.")
-            
+            logger.info("Solution memory saved to LanceDB. Error ticket closed.")
+
             # Print success message in green
-            print(f"\n\033[92m[TICKET CERRADO] Solución guardada con éxito en la memoria fractal:\033[0m")
+            print("\n\033[92m[TICKET CERRADO] Solución guardada con éxito en la memoria fractal:\033[0m")
             print(f"\033[96m{solution}\033[0m\n")
 
             self.active_error = None
@@ -233,15 +254,15 @@ class ProtocoloIntriga:
 
     async def iniciar_protocolo_capacitacion(self, cli_name: str, writer):
         logger.info(f"🎓 [Protocolo de Capacitación] Iniciando auto-capacitación para la CLI: '{cli_name}'")
-        
+
         # 1. Search Tavily for CLI documentation and examples
         search_query = f"how to use {cli_name} cli python commands documentation examples"
         logger.info(f"Querying Tavily for '{cli_name}' documentation...")
         documentation = await self.call_tavily_search(search_query)
-        
+
         # 2. Formulate LLM call to write the tool
         req_id = f"capacitacion-tool-{cli_name}-{int(time.time())}"
-        
+
         prompt_write_tool = (
             "Eres el Protocolo de Capacitación Autónoma de Visión OS.\n"
             f"Hemos detectado que la herramienta CLI '{cli_name}' está instalada en el sistema local, pero carecemos de una herramienta en Python para controlarla.\n\n"
@@ -254,7 +275,7 @@ class ProtocoloIntriga:
             "4. Responder ÚNICAMENTE con el código ejecutable de Python, sin bloques de código markdown ```python ni explicaciones adicionales. El código debe empezar directamente con los imports.\n"
             "Código de Python:"
         )
-        
+
         llm_request = {
             "action": "publish",
             "topic": "canal.cognitivo.peticion",
@@ -297,7 +318,7 @@ class ProtocoloIntriga:
                     line = await reader.readline()
                     if not line:
                         break
-                    
+
                     event = json.loads(line.decode("utf-8").strip())
                     topic = event.get("topic")
                     data = event.get("data", {})

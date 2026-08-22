@@ -18,12 +18,12 @@ def calculate_rms(audio_data: bytes) -> float:
     """
     if not audio_data:
         return 0.0
-    
+
     # 16-bit audio means 2 bytes per sample
     count = len(audio_data) // 2
     if count == 0:
         return 0.0
-    
+
     # Unpack bytes to signed shorts
     fmt = f"{count}h"
     try:
@@ -36,7 +36,7 @@ def calculate_rms(audio_data: bytes) -> float:
         # Normalize sample to range [-1.0, 1.0]
         n = sample / 32768.0
         sum_squares += n * n
-        
+
     rms = math.sqrt(sum_squares / count)
     return rms
 
@@ -45,7 +45,7 @@ def run_calibration():
     print("="*60)
     print("        VISION OS: CALIBRADOR SENSORIAL DE AUDIO (MIC)")
     print("="*60)
-    
+
     if not pyaudio:
         print("\n[ERROR] PyAudio no está instalado en este entorno.")
         print("Para instalarlo en Windows podés intentar:")
@@ -62,7 +62,7 @@ def run_calibration():
     CHUNK = 1024
 
     p = pyaudio.PyAudio()
-    
+
     try:
         stream = p.open(
             format=FORMAT,
@@ -87,17 +87,17 @@ def run_calibration():
         while True:
             data = stream.read(CHUNK, exception_on_overflow=False)
             rms = calculate_rms(data)
-            
+
             # Map RMS to a visual bar indicator
             # Max RMS typically scales between 0.0 (silence) and 0.5+ (loud)
             bar_len = int(rms * 100)
             bar = "#" * min(bar_len, 30)
-            
+
             # Flush stdout for smooth real-time update in terminal
             sys.stdout.write(f"\r{rms:14.6f} | {bar:<30}")
             sys.stdout.flush()
             time.sleep(0.05)
-            
+
     except KeyboardInterrupt:
         print("\n\nCalibración detenida por el usuario.")
     finally:
@@ -118,15 +118,15 @@ def run_mock_calibration():
         while True:
             rms = mock_values[idx]
             idx = (idx + 1) % len(mock_values)
-            
+
             # Add minor random noise
             import random
             rms += random.uniform(-0.001, 0.002)
             rms = max(0.0001, rms)
-            
+
             bar_len = int(rms * 100)
             bar = "#" * min(bar_len, 30)
-            
+
             sys.stdout.write(f"\r{rms:14.6f} | {bar:<30}")
             sys.stdout.flush()
             time.sleep(0.3)

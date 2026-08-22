@@ -3,8 +3,8 @@ import json
 import logging
 import os
 import sys
-import time
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 # Configure logging
@@ -46,12 +46,12 @@ class OidoParietal:
 
         # Pause/resume control (set by system commands via broker)
         self.pausado = False
-        
+
         self.input_device_index = None
         self.energy_threshold = 300
         self.dynamic_energy_threshold = True
         self.whisper_model = "tiny"
-        
+
         self.load_config()
 
         # Check if we should enforce mock mode due to missing packages or flag
@@ -76,7 +76,7 @@ class OidoParietal:
                 "hardware_interfaces.json"
             )
             if os.path.exists(config_path):
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, encoding="utf-8") as f:
                     cfg = json.load(f)
                 oido_cfg = cfg.get("oido_activo", {})
                 self.input_device_index = oido_cfg.get("input_device_index")
@@ -110,13 +110,13 @@ class OidoParietal:
             segments, info = self.model.transcribe(temp_filename, beam_size=5)
             text_segments = [segment.text for segment in segments]
             text = " ".join(text_segments).strip()
-            
+
             # Clean up temp file
             try:
                 os.remove(temp_filename)
             except Exception:
                 pass
-                
+
             return text
         except Exception as e:
             logger.error(f"Error during audio transcription: {e}")
@@ -137,7 +137,7 @@ class OidoParietal:
             "hola vision, reporta el estado actual"
         ]
         cmd_idx = 0
-        
+
         while True:
             # If paused, skip mock dictation
             if self.pausado:
@@ -147,9 +147,9 @@ class OidoParietal:
             await asyncio.sleep(12.0)
             command = mock_commands[cmd_idx]
             cmd_idx = (cmd_idx + 1) % len(mock_commands)
-            
+
             logger.info(f"[Oído Parietal] (MOCK Dictation) Transcribed text: '{command}'")
-            
+
             payload = {
                 "action": "publish",
                 "topic": "canal.sensorial.audio.transcripcion",
@@ -181,8 +181,21 @@ class OidoParietal:
                 except json.JSONDecodeError:
                     continue
 
-                if event.get("topic") == "system":
-                    data = event.get("data", {})
+                topic = event.get("topic")
+                data = event.get("data", {})
+
+                if topic == "canal.sistema.comando":
+                    comando = data.get("comando")
+                    accion = data.get("accion")
+                    if comando == "oido":
+                        if accion == "pausar":
+                            self.pausado = True
+                            logger.info("🎙️ Oído Parietal PAUSADO por comando de canal.sistema.comando.")
+                        elif accion == "reanudar":
+                            self.pausado = False
+                            logger.info("🎙️ Oído Parietal REANUDADO por comando de canal.sistema.comando.")
+
+                elif topic == "system":
                     action = data.get("action")
                     if action == "oido_toggle":
                         self.pausado = data.get("pausado", False)
@@ -199,7 +212,7 @@ class OidoParietal:
                                 "arranque.yaml"
                             )
                             if os.path.exists(arr_path):
-                                with open(arr_path, "r", encoding="utf-8") as f:
+                                with open(arr_path, encoding="utf-8") as f:
                                     import yaml
                                     arr_cfg = yaml.safe_load(f)
                                 mock_flag = arr_cfg.get("modos_mock", {}).get("oido_parietal", True)
@@ -222,7 +235,7 @@ class OidoParietal:
                 # Subscribe to system commands
                 subscribe_msg = json.dumps({
                     "action": "subscribe",
-                    "topics": ["system"]
+                    "topics": ["system", "canal.sistema.comando"]
                 }) + "\n"
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
@@ -237,15 +250,15 @@ class OidoParietal:
                     r = sr.Recognizer()
                     r.energy_threshold = self.energy_threshold
                     r.dynamic_energy_threshold = self.dynamic_energy_threshold
-                    
+
                     mic = sr.Microphone(device_index=self.input_device_index)
-                    
+
                     logger.info("Microphone listener calibrated. Starting listening loop...")
                     with mic as source:
                         r.adjust_for_ambient_noise(source, duration=1.0)
-                    
+
                     loop = asyncio.get_running_loop()
-                    
+
                     while True:
                         # If paused, skip listening and just wait
                         if self.pausado:
@@ -266,10 +279,10 @@ class OidoParietal:
                             continue
 
                         logger.info("Voice input captured. Transcribing...")
-                        
+
                         # Run Whisper transcription in executor to keep event loop responsive
                         text = await loop.run_in_executor(self.executor, self.transcribe_audio_sync, audio)
-                        
+
                         if text:
                             logger.info(f"[Oído Parietal] Transcribed text: '{text}'")
                             payload = {

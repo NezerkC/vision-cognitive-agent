@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import sys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] TestPhase3: %(message)s")
 logger = logging.getLogger("TestPhase3")
@@ -9,7 +8,7 @@ logger = logging.getLogger("TestPhase3")
 async def test_memory_pipeline():
     logger.info("Connecting to event broker...")
     reader, writer = await asyncio.open_connection("127.0.0.1", 5000)
-    
+
     # Subscribe to memory and search response topics
     subscribe_msg = json.dumps({
         "action": "subscribe",
@@ -34,7 +33,7 @@ async def test_memory_pipeline():
         f"user: message number {i}" if i % 2 == 0 else f"agent: response number {i}"
         for i in range(20)
     ]
-    
+
     task_completion_event = {
         "action": "publish",
         "topic": "canal.sistema.fin_tarea",
@@ -44,7 +43,7 @@ async def test_memory_pipeline():
             "mock": True  # Enable mock LLM completion
         }
     }
-    
+
     logger.info(f"Publishing fin_tarea event for {task_id}...")
     writer.write((json.dumps(task_completion_event) + "\n").encode("utf-8"))
     await writer.drain()
@@ -58,7 +57,7 @@ async def test_memory_pipeline():
             line = await asyncio.wait_for(reader.readline(), timeout=5.0)
             if not line:
                 break
-            
+
             event = json.loads(line.decode("utf-8").strip())
             topic = event.get("topic")
             data = event.get("data", {})
@@ -108,20 +107,23 @@ async def test_memory_pipeline():
             line = await asyncio.wait_for(reader.readline(), timeout=5.0)
             if not line:
                 break
-            
+
             event = json.loads(line.decode("utf-8").strip())
             topic = event.get("topic")
             data = event.get("data", {})
             logger.info(f"Test client read event on '{topic}': {data}")
 
-            if topic == "canal.memoria.respuesta" and data.get("request_id") == search_request_id:
-                if data.get("status") == "success":
-                    results = data.get("results", [])
-                    logger.info(f"Received search results from database: {results}")
-                    if len(results) > 0 and results[0].get("escala_magnitud") == "KB":
-                        logger.info("VERIFICATION PASS: Semantic search returned indexed data with correct spatial metadata.")
-                        search_success = True
-                        break
+            if (
+                topic == "canal.memoria.respuesta"
+                and data.get("request_id") == search_request_id
+                and data.get("status") == "success"
+            ):
+                results = data.get("results", [])
+                logger.info(f"Received search results from database: {results}")
+                if len(results) > 0 and results[0].get("escala_magnitud") == "KB":
+                    logger.info("VERIFICATION PASS: Semantic search returned indexed data with correct spatial metadata.")
+                    search_success = True
+                    break
     except asyncio.TimeoutError:
         logger.error("Timeout waiting for search response event.")
 

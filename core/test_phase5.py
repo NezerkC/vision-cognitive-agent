@@ -15,7 +15,7 @@ logger = logging.getLogger("TestPhase5")
 async def test_integration():
     host = "127.0.0.1"
     port = 5000
-    
+
     logger.info("Connecting to event broker...")
     try:
         reader, writer = await asyncio.open_connection(host, port)
@@ -76,7 +76,7 @@ async def test_integration():
             line = await asyncio.wait_for(reader.readline(), timeout=1.0)
             if not line:
                 break
-            
+
             event = json.loads(line.decode("utf-8").strip())
             topic = event.get("topic")
             data = event.get("data", {})
@@ -91,13 +91,13 @@ async def test_integration():
             elif topic == "canal.ejecucion.resultado":
                 event_req_id = data.get("request_id")
                 resultado = data.get("resultado", {})
-                
+
                 if event_req_id == request_id:
                     stdout_content = resultado.get("stdout", "").strip()
                     logger.info(f"VERIFICATION PASS: Script execution output: '{stdout_content}'")
                     if "HEMISFERIO_IZQUIERDO_OK" in stdout_content:
                         action_received = True
-                
+
                 elif event_req_id == ui_request_id:
                     detail = resultado.get("detail", "")
                     logger.info(f"VERIFICATION PASS: UI execution detail: '{detail}'")

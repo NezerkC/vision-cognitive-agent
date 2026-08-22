@@ -1,9 +1,9 @@
 import asyncio
 import json
 import logging
-import os
 import sys
 import time
+
 import aiohttp
 
 # Configure logging
@@ -42,8 +42,7 @@ async def test_gui_integration():
     file_content = b"Contenido de prueba para inyeccion sensorial de archivos"
     filename = "test_upload.txt"
     logger.info(f"Simulating Drag & Drop upload of file '{filename}' to FastAPI...")
-    
-    file_relayed = False
+
     try:
         async with aiohttp.ClientSession() as session:
             data = aiohttp.FormData()
@@ -59,32 +58,30 @@ async def test_gui_integration():
 
     # 3. Test WebSockets relay by connecting a mock client
     logger.info("Connecting mock visual client to FastAPI WebSocket...")
-    ws_relayed = False
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.ws_connect(ws_url) as ws:
-                logger.info("WebSocket connected successfully. Sending mock PANIC stop request...")
-                # Send panic stopping trigger
-                panic_payload = {
-                    "action": "panic"
-                }
-                await ws.send_str(json.dumps(panic_payload))
-                logger.info("Panic trigger sent via WebSocket.")
-                await asyncio.sleep(1.0)
+        async with aiohttp.ClientSession() as session, session.ws_connect(ws_url) as ws:
+            logger.info("WebSocket connected successfully. Sending mock PANIC stop request...")
+            # Send panic stopping trigger
+            panic_payload = {
+                "action": "panic"
+            }
+            await ws.send_str(json.dumps(panic_payload))
+            logger.info("Panic trigger sent via WebSocket.")
+            await asyncio.sleep(1.0)
     except Exception as e:
         logger.error(f"WebSocket client test failed: {e}")
 
     # 4. Spy listen loop to verify broker received the forwarded events
     file_event_verified = False
     panic_event_verified = False
-    
+
     start_time = time.time()
     while time.time() - start_time < 15: # 15s timeout
         try:
             line = await asyncio.wait_for(broker_reader.readline(), timeout=1.0)
             if not line:
                 break
-            
+
             event = json.loads(line.decode("utf-8").strip())
             topic = event.get("topic")
             data = event.get("data", {})
@@ -95,7 +92,7 @@ async def test_gui_integration():
                 if data.get("nombre") == filename:
                     logger.info("VERIFICATION PASS: Event broker received relayed file ingestion event!")
                     file_event_verified = True
-            
+
             elif topic == "system":
                 action = data.get("action")
                 if action == "purge":

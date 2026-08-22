@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+
 import aiohttp
 
 # Configure logging
@@ -83,7 +84,6 @@ async def test_integration():
 
     # --- TEST 3: FastAPI Webhook Relaying ---
     logger.info("Sending simulated external POST request to FastAPI Webhook...")
-    webhook_relayed = False
     try:
         async with aiohttp.ClientSession() as session:
             payload = {"event": "git_push", "repo": "vision-os", "author": "NezerkC"}
@@ -106,7 +106,7 @@ async def test_integration():
             line = await asyncio.wait_for(reader.readline(), timeout=1.0)
             if not line:
                 break
-            
+
             event = json.loads(line.decode("utf-8").strip())
             topic = event.get("topic")
             data = event.get("data", {})

@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+
 import aiohttp
 from PIL import Image
 
@@ -142,16 +143,16 @@ class ImaginacionOccipital:
     async def handle_request(self, event_data, writer):
         request_id = event_data.get("request_id", f"img-{int(time.time())}")
         prompt = event_data.get("prompt")
-        
+
         if not prompt:
             logger.error("Missing 'prompt' in request.")
             return
 
         logger.info(f"Processing image generation request {request_id} for prompt: '{prompt}'")
-        
+
         # Trigger image generation
         img_path = await self.generate_comfy_image(prompt)
-        
+
         # Publish response event
         response_event = {
             "action": "publish",
@@ -163,7 +164,7 @@ class ImaginacionOccipital:
                 "status": "success"
             }
         }
-        
+
         try:
             writer.write((json.dumps(response_event) + "\n").encode("utf-8"))
             await writer.drain()
@@ -190,7 +191,7 @@ class ImaginacionOccipital:
                     line = await reader.readline()
                     if not line:
                         break
-                    
+
                     event = json.loads(line.decode("utf-8").strip())
                     topic = event.get("topic")
                     data = event.get("data", {})

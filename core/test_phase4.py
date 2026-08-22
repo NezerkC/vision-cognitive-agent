@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import sys
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] TestPhase4: %(message)s")
 logger = logging.getLogger("TestPhase4")
@@ -9,7 +8,7 @@ logger = logging.getLogger("TestPhase4")
 async def test_sensory_pipeline():
     logger.info("Connecting to event broker...")
     reader, writer = await asyncio.open_connection("127.0.0.1", 5000)
-    
+
     # Subscribe to vision captures and interpreted contexts
     subscribe_msg = json.dumps({
         "action": "subscribe",
@@ -32,22 +31,20 @@ async def test_sensory_pipeline():
             line = await asyncio.wait_for(reader.readline(), timeout=12.0)
             if not line:
                 break
-            
+
             event = json.loads(line.decode("utf-8").strip())
             topic = event.get("topic")
             data = event.get("data", {})
             logger.info(f"Test client read event on '{topic}'")
 
-            if topic == "canal.sensorial.vision":
-                if "image" in data:
-                    logger.info("VERIFICATION PASS: Screenshot captured and base64 string received.")
-                    vision_captured = True
+            if topic == "canal.sensorial.vision" and "image" in data:
+                logger.info("VERIFICATION PASS: Screenshot captured and base64 string received.")
+                vision_captured = True
 
-            elif topic == "canal.sistema.contexto_actual":
-                if "contexto" in data:
-                    logger.info(f"VERIFICATION PASS: Context successfully updated: {data.get('contexto')}")
-                    context_captured = True
-                    break
+            elif topic == "canal.sistema.contexto_actual" and "contexto" in data:
+                logger.info(f"VERIFICATION PASS: Context successfully updated: {data.get('contexto')}")
+                context_captured = True
+                break
 
     except asyncio.TimeoutError:
         logger.error("Timeout waiting for sensory pipeline events.")

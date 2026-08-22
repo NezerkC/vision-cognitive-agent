@@ -3,6 +3,25 @@
     "interval_seconds": 5,
     "monitor_index": 1,
     "modelo_vision": "local/qwen3-vl",
-    "difference_threshold": 0.01
+    "difference_threshold": 0.01,
+    "camara_activa": false,
+    "camara_index": 0,
+    "camera_ip": ""
+  },
+  "oido_activo": {
+    "input_device_index": null,
+    "energy_threshold": 300,
+    "dynamic_energy_threshold": true,
+    "whisper_model": "base"
+  },
+  "habla_activa": {
+    "output_device_index": null,
+    "tts_engine": "edge-tts"
+  },
+  "evento_ventana_activa": {
+    "activado": true,
+    "intervalo_chequeo_seg": 3,
+    "detectar_errores_pantalla": true,
+    "generar_ticket_mental_intriga": true
   }
 }

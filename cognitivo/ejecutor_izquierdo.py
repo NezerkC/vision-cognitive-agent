@@ -78,7 +78,7 @@ class EjecutorIzquierdo:
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
-            
+
             stdout_str = stdout.decode("utf-8", errors="ignore")
             stderr_str = stderr.decode("utf-8", errors="ignore")
             exit_code = process.returncode
@@ -149,7 +149,7 @@ class EjecutorIzquierdo:
                     line = await reader.readline()
                     if not line:
                         break
-                    
+
                     event = json.loads(line.decode("utf-8").strip())
                     topic = event.get("topic")
                     data = event.get("data", {})
@@ -157,9 +157,29 @@ class EjecutorIzquierdo:
                     if topic == "canal.ejecucion.accion":
                         # Execute the tool in the background
                         asyncio.create_task(self.handle_action(data, writer))
-                    elif topic == "system" and data.get("command") == "shutdown":
-                        logger.info("Shutdown command received. Exiting.")
-                        return
+                    elif topic == "system":
+                        action = data.get("action")
+                        if action == "reload_arranque":
+                            try:
+                                import os
+
+                                import yaml
+                                arr_path = os.path.join(
+                                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "config",
+                                    "arranque.yaml"
+                                )
+                                if os.path.exists(arr_path):
+                                    with open(arr_path, encoding="utf-8") as f:
+                                        arr_cfg = yaml.safe_load(f)
+                                    mock_flag = arr_cfg.get("modos_mock", {}).get("ejecutor_izquierdo", True)
+                                    self.is_mock = mock_flag or ("--mock" in sys.argv)
+                                    logger.info(f"💻 Ejecutor Izquierdo: Estado mock actualizado a {self.is_mock}")
+                            except Exception as ex:
+                                logger.warning(f"Failed to reload mock settings in Ejecutor: {ex}")
+                        elif data.get("command") == "shutdown":
+                            logger.info("Shutdown command received. Exiting.")
+                            return
 
             except Exception as e:
                 logger.error(f"Connection lost or error in loop: {e}. Reconnecting in 5 seconds...")

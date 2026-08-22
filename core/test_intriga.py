@@ -39,7 +39,7 @@ async def test_ticketing():
 
     # 1. Publish simulated context showing an anomaly
     anomaly_text = "Driver Radeon crashed with code 43"
-    logger.info(f"Publishing anomaly event to 'canal.sistema.contexto_actual'...")
+    logger.info("Publishing anomaly event to 'canal.sistema.contexto_actual'...")
     context_payload = {
         "action": "publish",
         "topic": "canal.sistema.contexto_actual",
@@ -75,7 +75,7 @@ async def test_ticketing():
                 if anomaly_text in msg:
                     logger.info("VERIFICATION PASS: Ticket proposal announced by Protocolo de Intriga!")
                     ticket_announced = True
-                    
+
                     # 2. Simulate user confirming via voice transcription
                     logger.info("Publishing confirmation voice transcription 'si, procede'...")
                     confirm_payload = {

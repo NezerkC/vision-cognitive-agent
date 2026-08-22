@@ -1,23 +1,25 @@
 import asyncio
+import base64
 import json
 import logging
 import os
 import sys
-import time
-import uvicorn
-from fastapi import FastAPI, Request, File, UploadFile, WebSocket, WebSocketDisconnect, Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-import yaml
-import lancedb
-import httpx
-from dotenv import set_key, find_dotenv
 import tempfile
-import base64
-import litellm
-from langchain_community.document_loaders import PyPDFLoader, CSVLoader, TextLoader
+import time
 
+import httpx
+import lancedb
+import litellm
+import uvicorn
+import yaml
+from dotenv import set_key
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
+
+from cognitivo.cuadernos_manager import CuadernosManager
 
 # Configure logging
 logging.basicConfig(
@@ -196,9 +198,89 @@ class PerifericoGateway:
 gateway = PerifericoGateway()
 
 
+try:
+    from cognitivo.gestor_llamacpp import (
+        PROVIDER_RECOMMENDATIONS,
+        detener_servidor_llamacpp,
+        iniciar_servidor_llamacpp,
+        obtener_telemetria_sistema,
+        verificar_estado_servidor,
+    )
+except ImportError:
+    iniciar_servidor_llamacpp = None
+    detener_servidor_llamacpp = None
+    verificar_estado_servidor = None
+    obtener_telemetria_sistema = None
+    PROVIDER_RECOMMENDATIONS = {}
+
+
 # ---------------------------------------------------------------------------
 # REST API Endpoints
 # ---------------------------------------------------------------------------
+
+@app.post("/api/llamacpp/iniciar")
+async def api_iniciar_llamacpp(request: Request):
+    """
+    Inicia o reinicia el servidor llama-server.exe liberando VRAM de instancias previas.
+    """
+    try:
+        body = await request.json()
+        folder_path = body.get("folder_path", "C:\\Users\\lolpl\\Desktop\\llama.cpp\\llama-b10082-bin-win-cuda-13.3-x64")
+        config = body.get("config", {})
+        model_path = body.get("model_path", "")
+
+        if not iniciar_servidor_llamacpp:
+            return JSONResponse({"status": "error", "message": "GestorLlamaCpp no disponible"}, status_code=500)
+
+        success = iniciar_servidor_llamacpp(folder_path, config, model_path)
+        if success:
+            return {"status": "loading", "message": "Servidor iniciando..."}
+        else:
+            return JSONResponse({"status": "error", "message": "No se pudo lanzar llama-server.exe"}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.post("/api/llamacpp/detener")
+async def api_detener_llamacpp():
+    """
+    Detiene de forma limpia la instancia en ejecución de llama-server.exe liberando VRAM.
+    """
+    try:
+        if detener_servidor_llamacpp:
+            detener_servidor_llamacpp()
+        return {"status": "stopped", "message": "Servidor detenido correctamente"}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.get("/api/llamacpp/estado")
+async def api_estado_llamacpp():
+    """
+    Verifica mediante ping HTTP la salud real del servidor local llama.cpp.
+    """
+    if verificar_estado_servidor:
+        return verificar_estado_servidor()
+    return {"status": "stopped", "active": False}
+
+
+@app.get("/api/llamacpp/telemetria")
+async def api_telemetria_llamacpp():
+    """
+    Retorna la telemetría en tiempo real de RAM, CPU, VRAM GPU y Temperaturas.
+    """
+    if obtener_telemetria_sistema:
+        return obtener_telemetria_sistema()
+    return {}
+
+
+@app.get("/api/llamacpp/presets")
+async def api_presets_llamacpp():
+    """
+    Retorna el catálogo de configuraciones recomendadas oficialmente por los proveedores.
+    """
+    return PROVIDER_RECOMMENDATIONS
+
 
 @app.get("/api/health")
 async def get_health():
@@ -221,7 +303,7 @@ async def get_health():
     health_path = os.path.join(PROJECT_ROOT, "config", ".health_status.json")
     try:
         if os.path.exists(health_path):
-            with open(health_path, "r", encoding="utf-8") as f:
+            with open(health_path, encoding="utf-8") as f:
                 health_data = json.load(f)
             result["services"] = health_data.get("services", {})
     except Exception as e:
@@ -231,7 +313,7 @@ async def get_health():
     emotion_path = os.path.join(PROJECT_ROOT, "config", "emotions.json")
     try:
         if os.path.exists(emotion_path):
-            with open(emotion_path, "r", encoding="utf-8") as f:
+            with open(emotion_path, encoding="utf-8") as f:
                 result["emotion"] = json.load(f)
     except Exception as e:
         logger.error(f"Error reading emotions: {e}")
@@ -247,7 +329,7 @@ async def get_health():
         max_gb = 100.0  # default fallback
         try:
             if os.path.exists(tiering_path):
-                with open(tiering_path, "r", encoding="utf-8") as f:
+                with open(tiering_path, encoding="utf-8") as f:
                     tier_cfg = yaml.safe_load(f)
                 max_gb = float(
                     tier_cfg.get("storage", {})
@@ -273,7 +355,7 @@ async def get_config():
     """
     config_path = os.path.join(PROJECT_ROOT, "config", "llm_router.yaml")
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         return cfg
     except Exception as e:
@@ -341,7 +423,7 @@ async def get_models_list():
     if not os.path.exists(registry_path):
         return []
     try:
-        with open(registry_path, "r", encoding="utf-8") as f:
+        with open(registry_path, encoding="utf-8") as f:
             models_data = json.load(f)
         return models_data
     except Exception as e:
@@ -357,7 +439,7 @@ async def save_new_model(request: Request):
         # Load existing
         models_data = []
         if os.path.exists(registry_path):
-            with open(registry_path, "r", encoding="utf-8") as f:
+            with open(registry_path, encoding="utf-8") as f:
                 models_data = json.load(f)
 
         # Assign ID
@@ -413,7 +495,7 @@ async def guardar_credenciales(request: Request):
         # Create .env if it doesn't exist
         if not os.path.exists(env_path):
             with open(env_path, "w", encoding="utf-8") as f:
-                f.write(f"# Vision OS — Environment Configuration\n")
+                f.write("# Vision OS — Environment Configuration\n")
 
         changes = []
         if api_key:
@@ -437,7 +519,7 @@ async def get_config_modelos():
     """Returns the model configuration (strategies block) from llm_router.yaml."""
     config_path = os.path.join(PROJECT_ROOT, "config", "llm_router.yaml")
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         return {
             "status": "success",
@@ -457,7 +539,7 @@ async def save_config_modelos(request: Request):
         updates = await request.json()
 
         # Read existing config
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
 
         # Apply updates (merge strategies, roles, routing_strategy)
@@ -492,7 +574,7 @@ async def get_config_modulos():
     }
     try:
         if os.path.exists(modulos_path):
-            with open(modulos_path, "r", encoding="utf-8") as f:
+            with open(modulos_path, encoding="utf-8") as f:
                 mod_cfg = yaml.safe_load(f)
             return {"status": "success", "config": mod_cfg}
         return {"status": "success", "config": defaults}
@@ -589,7 +671,7 @@ async def list_cameras():
                 except Exception:
                     pass
             return cam_list
-            
+
         devices = await loop.run_in_executor(None, _check_cameras)
         return {"status": "success", "devices": devices}
     except Exception as e:
@@ -624,7 +706,7 @@ async def get_config_hardware():
     }
     try:
         if os.path.exists(hw_path):
-            with open(hw_path, "r", encoding="utf-8") as f:
+            with open(hw_path, encoding="utf-8") as f:
                 cfg = json.load(f)
             # Ensure keys exist
             for key, val in defaults.items():
@@ -671,7 +753,7 @@ async def get_config_arranque():
     }
     try:
         if os.path.exists(arr_path):
-            with open(arr_path, "r", encoding="utf-8") as f:
+            with open(arr_path, encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
             return {"status": "success", "config": cfg}
         return {"status": "success", "config": defaults}
@@ -696,7 +778,7 @@ async def save_config_arranque(request: Request):
 def get_vision_model_details():
     try:
         yaml_path = os.path.join(PROJECT_ROOT, "config", "llm_router.yaml")
-        with open(yaml_path, "r", encoding="utf-8") as f:
+        with open(yaml_path, encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         strategy = cfg.get("routing_strategy", "hibrido_api")
         model_cfg = cfg.get("strategies", {}).get(strategy, {}).get("esfuerzo_medio", {})
@@ -735,17 +817,17 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
         if content_type.startswith("image/") or suffix.lower() in [".png", ".jpg", ".jpeg", ".webp"]:
             logger.info("MIME type: Image. Initiating vision analysis...")
             meta_source = "image"
-            
+
             # Encode image in base64
             with open(temp_file_path, "rb") as img_f:
                 img_b64 = base64.b64encode(img_f.read()).decode("utf-8")
-                
+
             model_name, api_base, api_key = get_vision_model_details()
-            
+
             prompt_text = "Describe esta imagen de forma extremadamente detallada para usarla como memoria contextual. Enumera los objetos, colores, texto visible y el tema central."
             if description:
                 prompt_text += f" Contexto adicional proporcionado por el usuario: {description}"
-                
+
             messages = [
                 {
                     "role": "user",
@@ -760,14 +842,14 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                     ]
                 }
             ]
-            
+
             # Call vision LLM
             kwargs = {}
             if api_base:
                 kwargs["api_base"] = api_base
             if api_key:
                 kwargs["api_key"] = api_key
-                
+
             logger.info(f"Calling vision model '{model_name}' to describe image...")
             response = await litellm.acompletion(
                 model=model_name,
@@ -782,7 +864,7 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
         elif content_type.startswith("audio/") or suffix.lower() in [".mp3", ".wav", ".ogg", ".m4a", ".flac"]:
             logger.info("MIME type: Audio. Initiating transcription...")
             meta_source = "audio"
-            
+
             # Try faster-whisper first
             try:
                 from faster_whisper import WhisperModel
@@ -831,7 +913,7 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                     docs = loader.load()
                     text_content = "\n".join([doc.page_content for doc in docs])
                 except Exception:
-                    with open(temp_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(temp_file_path, encoding="utf-8", errors="ignore") as f:
                         text_content = f.read()
             logger.info(f"Extracted {len(text_content)} characters from document.")
 
@@ -946,15 +1028,15 @@ async def pull_ollama_model(request: Request):
         model_tag = data.get("modelo", "").strip()
         if not model_tag:
             return JSONResponse(status_code=400, content={"status": "error", "message": "Falta el nombre del modelo."})
-        
+
         model_name = f"ollama/{model_tag}"
         from cognitivo.gestor_modelos_locales import pull_model_if_missing
-        
+
         # Run pull_model_if_missing in the event loop
         success = await pull_model_if_missing(model_name)
         if success:
             return {"status": "success", "message": f"Modelo {model_tag} descargado e instalado."}
-            
+
         return JSONResponse(status_code=500, content={"status": "error", "message": f"Falló la descarga del modelo {model_tag}."})
     except Exception as e:
         logger.error(f"Error pulling model: {e}")
@@ -1150,11 +1232,231 @@ async def websocket_sensorial(websocket: WebSocket):
         logger.info(f"Dashboard client cleaned up. Connected remaining: {len(gateway.active_websockets)}")
 
 
+async def periodic_telemetry_loop():
+    """Periodically broadcasts hardware telemetry (RTX 5060 Ti, RAM/VRAM), Plutchik emotion state, and 4D memory nodes over WebSockets."""
+    while True:
+        try:
+            if gateway.active_websockets:
+                # 1. Hardware & System Telemetry
+                telemetry = {}
+                if obtener_telemetria_sistema:
+                    try:
+                        telemetry = obtener_telemetria_sistema()
+                    except Exception:
+                        pass
+
+                # 2. Emotion state
+                emotion = None
+                emotion_path = os.path.join(PROJECT_ROOT, "config", "emotions.json")
+                if os.path.exists(emotion_path):
+                    try:
+                        with open(emotion_path, encoding="utf-8") as f:
+                            emotion = json.load(f)
+                    except Exception:
+                        pass
+
+                # 3. 4D Memory Radar Nodes
+                memory_nodes = []
+                mem_path = os.path.join(PROJECT_ROOT, "memoria_activa")
+                if os.path.exists(mem_path):
+                    try:
+                        db = lancedb.connect(mem_path)
+                        if "memoria_fractal" in db.table_names():
+                            tbl = db.open_table("memoria_fractal")
+                            df = tbl.to_pandas().head(100)
+                            for _, row in df.iterrows():
+                                memory_nodes.append({
+                                    "text": str(row.get("text", "")),
+                                    "x": float(row.get("coordenada_x", 0.0)),
+                                    "y": float(row.get("coordenada_y", 0.0)),
+                                    "z": float(row.get("coordenada_z", 0.0)),
+                                    "w": float(row.get("coordenada_w", 100.0)),
+                                })
+                    except Exception:
+                        pass
+
+                payload = {
+                    "topic": "canal.telemetria.realtime",
+                    "data": {
+                        "telemetry": telemetry,
+                        "gpu_name": "NVIDIA GeForce RTX 5060 Ti",
+                        "emotion": emotion,
+                        "memory_nodes": memory_nodes,
+                        "timestamp": time.time()
+                    }
+                }
+                await gateway.broadcast_to_websockets(payload)
+        except Exception as e:
+            logger.debug(f"Telemetry broadcast error: {e}")
+        await asyncio.sleep(2.0)
+
+
+# ============================================================================
+# ENDPOINTS CUADERNOS (NotebookLM Integrado)
+# ============================================================================
+cuadernos_mgr = CuadernosManager()
+
+@app.get("/api/cuadernos")
+async def api_list_cuadernos():
+    return {"status": "success", "cuadernos": cuadernos_mgr.list_cuadernos()}
+
+@app.post("/api/cuadernos")
+async def api_create_cuaderno(request: Request):
+    body = await request.json()
+    title = body.get("title", "Nuevo Cuaderno")
+    description = body.get("description", "")
+    cuaderno = cuadernos_mgr.create_cuaderno(title, description)
+    return {"status": "success", "cuaderno": cuaderno}
+
+@app.post("/api/cuadernos/investigar")
+async def api_investigar_cuaderno(request: Request):
+    body = await request.json()
+    tema = body.get("tema", "")
+    if not tema.strip():
+        return JSONResponse(status_code=400, content={"status": "error", "message": "El tema no puede estar vacío"})
+    provider_key = body.get("api_key", None)
+    cuaderno = await cuadernos_mgr.investigar_y_crear_cuaderno(tema, provider_key)
+    return {"status": "success", "cuaderno": cuaderno, "message": f"Investigación iniciada para '{tema}'"}
+
+@app.delete("/api/cuadernos/{notebook_id}")
+async def api_delete_cuaderno(notebook_id: str):
+    success = cuadernos_mgr.delete_cuaderno(notebook_id)
+    if not success:
+        return JSONResponse(status_code=404, content={"status": "error", "message": "Cuaderno no encontrado"})
+    return {"status": "success", "message": f"Cuaderno {notebook_id} eliminado"}
+
+@app.post("/api/cuadernos/{notebook_id}/fuentes")
+async def api_add_fuente_cuaderno(notebook_id: str, file: UploadFile = File(...), description: str = Form(None)):
+    try:
+        content = await file.read()
+        fuente = await cuadernos_mgr.add_fuente(notebook_id, file.filename, content, description)
+        return {"status": "success", "fuente": fuente}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+
+@app.post("/api/cuadernos/{notebook_id}/sintesis")
+async def api_generar_sintesis_cuaderno(notebook_id: str, request: Request):
+    body = await request.json()
+    tipo = body.get("tipo", "resumen")
+    provider_key = body.get("api_key", None)
+    try:
+        nota = await cuadernos_mgr.generar_sintesis(notebook_id, tipo, provider_key)
+        return {"status": "success", "nota": nota}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+
+@app.post("/api/cuadernos/{notebook_id}/chat")
+async def api_chat_cuaderno(notebook_id: str, request: Request):
+    body = await request.json()
+    query = body.get("query", "")
+    history = body.get("history", [])
+    provider_key = body.get("api_key", None)
+    search_web = body.get("search_web", False)
+    search_mode = body.get("search_mode", "simple")
+    max_web_results = int(body.get("max_web_results", 5))
+    if search_mode == "profundo":
+        search_web = True
+        max_web_results = max(max_web_results, 25)
+    response_style = body.get("response_style", "conciso")
+
+    async def stream_generator():
+        async for chunk in cuadernos_mgr.chat_cuaderno_stream(
+            notebook_id=notebook_id,
+            query=query,
+            history=history,
+            search_web=search_web,
+            max_web_results=max_web_results,
+            response_style=response_style,
+            provider_api_key=provider_key
+        ):
+            yield chunk
+
+    return StreamingResponse(stream_generator(), media_type="text/plain")
+
+
+
+# ============================================================================
+# ENDPOINTS WORKSPACE (Gestor de Proyectos estilo VS Code)
+# ============================================================================
+
+def build_dir_tree(dir_path: str, max_depth: int = 3, current_depth: int = 0) -> list[dict]:
+    if not os.path.exists(dir_path) or current_depth > max_depth:
+        return []
+    items = []
+    try:
+        entries = sorted(os.listdir(dir_path))
+        for entry in entries:
+            if entry.startswith(".") or entry in ("__pycache__", "node_modules", ".git", ".venv", "dist", "build"):
+                continue
+            full_path = os.path.join(dir_path, entry)
+            is_dir = os.path.isdir(full_path)
+            item = {
+                "name": entry,
+                "path": full_path,
+                "is_dir": is_dir,
+                "children": build_dir_tree(full_path, max_depth, current_depth + 1) if is_dir else []
+            }
+            items.append(item)
+    except Exception as e:
+        logger.warning(f"Error reading dir tree for {dir_path}: {e}")
+    return items
+
+
+@app.get("/api/workspace/tree")
+async def api_workspace_tree(path: str | None = None):
+    target_path = path or PROJECT_ROOT
+    if not os.path.exists(target_path):
+        target_path = PROJECT_ROOT
+    tree = build_dir_tree(target_path)
+    return {
+        "status": "success",
+        "workspace_path": target_path,
+        "workspace_name": os.path.basename(target_path) or target_path,
+        "tree": tree
+    }
+
+
+@app.post("/api/workspace/clone_git")
+async def api_workspace_clone_git(request: Request):
+    body = await request.json()
+    repo_url = body.get("repo_url", "").strip()
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="repo_url es obligatorio")
+
+    folder_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
+    target_dir = os.path.join(PROJECT_ROOT, "datos_crudos", folder_name)
+    os.makedirs(os.path.dirname(target_dir), exist_ok=True)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "clone", repo_url, target_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            raise RuntimeError(stderr.decode("utf-8", errors="ignore"))
+
+        tree = build_dir_tree(target_dir)
+        return {
+            "status": "success",
+            "workspace_path": target_dir,
+            "workspace_name": folder_name,
+            "tree": tree
+        }
+    except Exception as e:
+        logger.error(f"Error en git clone: {e}")
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
 async def run_server():
     # 1. Start the broker connection daemon task
     asyncio.create_task(gateway.connect_to_broker_loop())
 
-    # 2. Run Uvicorn Server directly in the running event loop
+    # 2. Start real-time WebSocket telemetry task
+    asyncio.create_task(periodic_telemetry_loop())
+
+    # 3. Run Uvicorn Server directly in the running event loop
     config = uvicorn.Config(
         app=app,
         host="127.0.0.1",
@@ -1172,3 +1474,4 @@ if __name__ == "__main__":
         asyncio.run(run_server())
     except KeyboardInterrupt:
         logger.info("Sistema Periférico stopped.")
+
