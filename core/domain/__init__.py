@@ -1,8 +1,8 @@
 """
-Pydantic Schemas for Event Broker Communication in Visión OS.
-Enforces typed message contracts across microservices and Hexagonal Ports.
+Domain layer for Visión OS.
+Pure domain entities, value objects, and typed event definitions.
 """
-
+from core.domain.emotions import EmotionalState
 from core.domain.events import (
     AudioSensorialEventData,
     BaseEventData,
@@ -14,6 +14,7 @@ from core.domain.events import (
     SystemEventData,
     VisionSensorialEventData,
 )
+from core.domain.memory_entities import Coordinates4D, MemoryRecord, StorageTier
 
 __all__ = [
     "BaseEventData",
@@ -25,4 +26,8 @@ __all__ = [
     "CognitiveResponseEventData",
     "SafetyAlertEventData",
     "EventEnvelope",
+    "Coordinates4D",
+    "MemoryRecord",
+    "StorageTier",
+    "EmotionalState",
 ]
