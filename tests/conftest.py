@@ -1,4 +1,5 @@
 """Shared fixtures for Visión OS test suite."""
+
 import asyncio
 
 import pytest

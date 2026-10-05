@@ -25,7 +25,7 @@ from cognitivo.cuadernos_manager import CuadernosManager
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] SistemaPeriferico: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("SistemaPeriferico")
 
@@ -66,24 +66,18 @@ def _get_dir_size_gb(path: str) -> float:
                 total_bytes += os.path.getsize(fp)
             except (OSError, PermissionError):
                 pass
-    return total_bytes / (1024 ** 3)
+    return total_bytes / (1024**3)
 
 
 @app.get("/")
 async def get_index():
-    headers = {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache"
-    }
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache"}
     return FileResponse(os.path.join(GUI_DIR, "index.html"), headers=headers)
 
 
 @app.get("/graph")
 async def get_graph():
-    headers = {
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-        "Pragma": "no-cache"
-    }
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0", "Pragma": "no-cache"}
     return FileResponse(os.path.join(GUI_DIR, "graph.html"), headers=headers)
 
 
@@ -108,26 +102,33 @@ class PerifericoGateway:
         while True:
             try:
                 if self.writer is None:
-                    self.reader, self.writer = await asyncio.open_connection(self.host, self.port, limit=16 * 1024 * 1024)
+                    self.reader, self.writer = await asyncio.open_connection(
+                        self.host, self.port, limit=16 * 1024 * 1024
+                    )
                     logger.info("Connected to event broker. Subscribing to system and visual topics...")
 
                     # Subscribe to all relevant system/sensory/execution topics for the GUI
-                    subscribe_msg = json.dumps({
-                        "action": "subscribe",
-                        "topics": [
-                            "canal.sistema.contexto_actual",
-                            "canal.sensorial.audio.transcripcion",
-                            "canal.ejecucion.accion",
-                            "canal.imaginacion.respuesta",
-                            "canal.sistema.anuncios",
-                            "canal.sensorial.vision",
-                            "canal.memoria",
-                            "canal.cognitivo.entrada",
-                            "canal.cognitivo.peticion",
-                            "canal.cognitivo.respuesta",
-                            "system"
-                        ]
-                    }) + "\n"
+                    subscribe_msg = (
+                        json.dumps(
+                            {
+                                "action": "subscribe",
+                                "topics": [
+                                    "canal.sistema.contexto_actual",
+                                    "canal.sensorial.audio.transcripcion",
+                                    "canal.ejecucion.accion",
+                                    "canal.imaginacion.respuesta",
+                                    "canal.sistema.anuncios",
+                                    "canal.sensorial.vision",
+                                    "canal.memoria",
+                                    "canal.cognitivo.entrada",
+                                    "canal.cognitivo.peticion",
+                                    "canal.cognitivo.respuesta",
+                                    "system",
+                                ],
+                            }
+                        )
+                        + "\n"
+                    )
                     self.writer.write(subscribe_msg.encode("utf-8"))
                     await self.writer.drain()
 
@@ -161,11 +162,7 @@ class PerifericoGateway:
             logger.error("Cannot publish: not connected to event broker.")
             return False
 
-        payload = {
-            "action": "publish",
-            "topic": topic,
-            "data": data
-        }
+        payload = {"action": "publish", "topic": topic, "data": data}
         try:
             self.writer.write((json.dumps(payload) + "\n").encode("utf-8"))
             await self.writer.drain()
@@ -218,6 +215,7 @@ except ImportError:
 # REST API Endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.post("/api/llamacpp/iniciar")
 async def api_iniciar_llamacpp(request: Request):
     """
@@ -225,7 +223,9 @@ async def api_iniciar_llamacpp(request: Request):
     """
     try:
         body = await request.json()
-        folder_path = body.get("folder_path", "C:\\Users\\lolpl\\Desktop\\llama.cpp\\llama-b10082-bin-win-cuda-13.3-x64")
+        folder_path = body.get(
+            "folder_path", "C:\\Users\\lolpl\\Desktop\\llama.cpp\\llama-b10082-bin-win-cuda-13.3-x64"
+        )
         config = body.get("config", {})
         model_path = body.get("model_path", "")
 
@@ -290,14 +290,7 @@ async def get_health():
       - Current emotional state (from config/emotions.json)
       - Memory tier storage usage (from memoria_activa/ size × config)
     """
-    result = {
-        "services": {},
-        "emotion": None,
-        "memory_tier": {
-            "hot_usage_pct": 0.0,
-            "hot_usage_gb": 0.0
-        }
-    }
+    result = {"services": {}, "emotion": None, "memory_tier": {"hot_usage_pct": 0.0, "hot_usage_gb": 0.0}}
 
     # 1. Read watchdog health status file
     health_path = os.path.join(PROJECT_ROOT, "config", ".health_status.json")
@@ -331,17 +324,11 @@ async def get_health():
             if os.path.exists(tiering_path):
                 with open(tiering_path, encoding="utf-8") as f:
                     tier_cfg = yaml.safe_load(f)
-                max_gb = float(
-                    tier_cfg.get("storage", {})
-                    .get("ssd_hot", {})
-                    .get("max_capacity_gb", 100)
-                )
+                max_gb = float(tier_cfg.get("storage", {}).get("ssd_hot", {}).get("max_capacity_gb", 100))
         except Exception:
             pass
 
-        result["memory_tier"]["hot_usage_pct"] = (
-            round(hot_gb / max_gb, 4) if max_gb > 0 else 0.0
-        )
+        result["memory_tier"]["hot_usage_pct"] = round(hot_gb / max_gb, 4) if max_gb > 0 else 0.0
     except Exception as e:
         logger.error(f"Error calculating memory usage: {e}")
 
@@ -398,14 +385,16 @@ async def get_memoria():
             df = tbl.to_pandas()
             results = []
             for _, row in df.iterrows():
-                results.append({
-                    "id": row.get("id", ""),
-                    "texto": row.get("texto", ""),
-                    "x": float(row.get("x", 0.0)),
-                    "y": float(row.get("y", 0.0)),
-                    "z": float(row.get("z", 0.0)),
-                    "timestamp": float(row.get("timestamp", 0.0))
-                })
+                results.append(
+                    {
+                        "id": row.get("id", ""),
+                        "texto": row.get("texto", ""),
+                        "x": float(row.get("x", 0.0)),
+                        "y": float(row.get("y", 0.0)),
+                        "z": float(row.get("z", 0.0)),
+                        "timestamp": float(row.get("timestamp", 0.0)),
+                    }
+                )
             return results
     except Exception as e:
         logger.error(f"Error reading memory for API: {e}")
@@ -459,6 +448,7 @@ async def save_new_model(request: Request):
 # Phase 7: Credential management, dynamic model mapping, and module config
 # ---------------------------------------------------------------------------
 
+
 @app.get("/api/config/credenciales")
 async def get_credenciales():
     """
@@ -467,17 +457,25 @@ async def get_credenciales():
     """
     try:
         from dotenv import dotenv_values
+
         env_path = os.path.join(PROJECT_ROOT, ".env")
         creds = {}
         if os.path.exists(env_path):
             env_vars = dotenv_values(env_path)
-            keys_to_return = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LMSTUDIO_API_KEY", "TAVILY_API_KEY"]
+            keys_to_return = [
+                "OPENROUTER_API_KEY",
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "LMSTUDIO_API_KEY",
+                "TAVILY_API_KEY",
+            ]
             for k in keys_to_return:
                 creds[k] = env_vars.get(k, "")
         return {"status": "success", "credenciales": creds}
     except Exception as e:
         logger.error(f"Error reading credentials: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "mensaje": str(e)})
+
 
 @app.post("/api/config/credenciales")
 async def guardar_credenciales(request: Request):
@@ -525,7 +523,7 @@ async def get_config_modelos():
             "status": "success",
             "routing_strategy": cfg.get("routing_strategy", "locales"),
             "roles": cfg.get("roles", {}),
-            "strategies": cfg.get("strategies", {})
+            "strategies": cfg.get("strategies", {}),
         }
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -561,7 +559,6 @@ async def save_config_modelos(request: Request):
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
-
 @app.get("/api/config/modulos")
 async def get_config_modulos():
     """Returns module configuration (hardware toggles, profiles, etc.)."""
@@ -570,7 +567,7 @@ async def get_config_modulos():
         "oido": {"activo": True, "pausado": False},
         "vision": {"frecuencia_captura_seg": 5.0},
         "intriga": {"sensibilidad": 1},
-        "perfil_nervioso": "equilibrado"
+        "perfil_nervioso": "equilibrado",
     }
     try:
         if os.path.exists(modulos_path):
@@ -601,16 +598,14 @@ async def list_microphones():
     devices = []
     try:
         import pyaudio
+
         p = pyaudio.PyAudio()
         try:
             for i in range(p.get_device_count()):
                 try:
                     info = p.get_device_info_by_index(i)
-                    if info.get('maxInputChannels', 0) > 0:
-                        devices.append({
-                            "index": i,
-                            "name": info.get('name', f"Microphone {i}")
-                        })
+                    if info.get("maxInputChannels", 0) > 0:
+                        devices.append({"index": i, "name": info.get("name", f"Microphone {i}")})
                 except Exception:
                     pass
         finally:
@@ -627,16 +622,14 @@ async def list_speakers():
     devices = []
     try:
         import pyaudio
+
         p = pyaudio.PyAudio()
         try:
             for i in range(p.get_device_count()):
                 try:
                     info = p.get_device_info_by_index(i)
-                    if info.get('maxOutputChannels', 0) > 0:
-                        devices.append({
-                            "index": i,
-                            "name": info.get('name', f"Speaker {i}")
-                        })
+                    if info.get("maxOutputChannels", 0) > 0:
+                        devices.append({"index": i, "name": info.get("name", f"Speaker {i}")})
                 except Exception:
                     pass
         finally:
@@ -656,17 +649,16 @@ async def list_cameras():
     devices = []
     try:
         import cv2
+
         loop = asyncio.get_running_loop()
+
         def _check_cameras():
             cam_list = []
             for i in range(4):
                 try:
                     cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
                     if cap.isOpened():
-                        cam_list.append({
-                            "id": i,
-                            "nombre": f"Cámara Windows/Móvil {i}"
-                        })
+                        cam_list.append({"id": i, "nombre": f"Cámara Windows/Móvil {i}"})
                         cap.release()
                 except Exception:
                     pass
@@ -691,18 +683,15 @@ async def get_config_hardware():
             "difference_threshold": 0.01,
             "camara_activa": False,
             "camara_index": 0,
-            "camera_ip": ""
+            "camera_ip": "",
         },
         "oido_activo": {
             "input_device_index": None,
             "energy_threshold": 300,
             "dynamic_energy_threshold": True,
-            "whisper_model": "tiny"
+            "whisper_model": "tiny",
         },
-        "habla_activa": {
-            "output_device_index": None,
-            "tts_engine": "edge-tts"
-        }
+        "habla_activa": {"output_device_index": None, "tts_engine": "edge-tts"},
     }
     try:
         if os.path.exists(hw_path):
@@ -748,7 +737,7 @@ async def get_config_arranque():
             "ejecutor_izquierdo": True,
             "lancedb_manager": True,
             "protocolo_intriga": True,
-            "habla_parietal": True
+            "habla_parietal": True,
         }
     }
     try:
@@ -788,7 +777,11 @@ def get_vision_model_details():
         api_key = os.environ.get(api_key_env, api_key_env) if api_key_env else None
         return model_name, api_base, api_key
     except Exception:
-        return "openrouter/google/gemini-2.5-flash:free", "https://openrouter.ai/api/v1", os.environ.get("OPENROUTER_API_KEY")
+        return (
+            "openrouter/google/gemini-2.5-flash:free",
+            "https://openrouter.ai/api/v1",
+            os.environ.get("OPENROUTER_API_KEY"),
+        )
 
 
 @app.post("/api/memoria/aprender")
@@ -835,11 +828,9 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                         {"type": "text", "text": prompt_text},
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{content_type or 'image/jpeg'};base64,{img_b64}"
-                            }
-                        }
-                    ]
+                            "image_url": {"url": f"data:{content_type or 'image/jpeg'};base64,{img_b64}"},
+                        },
+                    ],
                 }
             ]
 
@@ -851,12 +842,7 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                 kwargs["api_key"] = api_key
 
             logger.info(f"Calling vision model '{model_name}' to describe image...")
-            response = await litellm.acompletion(
-                model=model_name,
-                messages=messages,
-                timeout=30.0,
-                **kwargs
-            )
+            response = await litellm.acompletion(model=model_name, messages=messages, timeout=30.0, **kwargs)
             text_content = response.choices[0].message.content
             logger.info("Successfully generated image description.")
 
@@ -868,6 +854,7 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
             # Try faster-whisper first
             try:
                 from faster_whisper import WhisperModel
+
                 logger.info("Loading faster-whisper model...")
                 model = WhisperModel("tiny", device="cpu", compute_type="int8")
                 segments, info = model.transcribe(temp_file_path)
@@ -876,13 +863,16 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                 # Fallback to speech_recognition
                 logger.info("faster-whisper not installed. Falling back to speech_recognition...")
                 import speech_recognition as sr
+
                 recognizer = sr.Recognizer()
                 try:
                     with sr.AudioFile(temp_file_path) as src:
                         audio_data = recognizer.record(src)
                         text_content = recognizer.recognize_google(audio_data, language="es-ES")
                 except Exception as audio_err:
-                    logger.warning(f"Local speech recognition failed: {audio_err}. Generating fallback mock transcript.")
+                    logger.warning(
+                        f"Local speech recognition failed: {audio_err}. Generating fallback mock transcript."
+                    )
                     text_content = f"[Transcripción de audio fallida] Archivo: {filename}."
                     if description:
                         text_content += f" Descripción del audio: {description}"
@@ -925,21 +915,24 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
             "filename": filename,
             "mime_type": content_type,
             "source": meta_source,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
         if description:
             metadata_payload["user_description"] = description
 
         # Publish the guardar event
-        publish_ok = await gateway.publish_event("canal.memoria", {
-            "action": "guardar",
-            "text": text_content,
-            "coordenada_x": 0.0,
-            "coordenada_y": 0.0,
-            "temperatura_z": 100.0,  # Save to SSD Hot memory tier
-            "escala_magnitud": "KB",
-            "metadata": metadata_payload
-        })
+        publish_ok = await gateway.publish_event(
+            "canal.memoria",
+            {
+                "action": "guardar",
+                "text": text_content,
+                "coordenada_x": 0.0,
+                "coordenada_y": 0.0,
+                "temperatura_z": 100.0,  # Save to SSD Hot memory tier
+                "escala_magnitud": "KB",
+                "metadata": metadata_payload,
+            },
+        )
 
         if publish_ok:
             logger.info(f"Published learning document '{filename}' to LanceDB manager.")
@@ -947,13 +940,16 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                 "status": "success",
                 "message": f"File '{filename}' ingested successfully.",
                 "type": meta_source,
-                "extracted_content_preview": text_content[:200] + "..." if len(text_content) > 200 else text_content
+                "extracted_content_preview": text_content[:200] + "..." if len(text_content) > 200 else text_content,
             }
         else:
-            return JSONResponse(status_code=500, content={
-                "status": "error",
-                "message": "Failed to publish learning document to LanceDB manager broker."
-            })
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "status": "error",
+                    "message": "Failed to publish learning document to LanceDB manager broker.",
+                },
+            )
 
     except Exception as e:
         logger.error(f"Error in multimodal learning endpoint: {e}")
@@ -980,15 +976,15 @@ async def mapear_modelos_lmstudio():
             data = resp.json()
             models = []
             for m in data.get("data", []):
-                models.append({
-                    "id": m.get("id", "unknown"),
-                    "proveedor": "lmstudio",
-                    "tipo": "local"
-                })
+                models.append({"id": m.get("id", "unknown"), "proveedor": "lmstudio", "tipo": "local"})
             return {"status": "success", "modelos": models, "fuente": "lmstudio"}
     except httpx.ConnectError:
-        return {"status": "offline", "modelos": [], "fuente": "lmstudio",
-                "error": "LM Studio no está corriendo en localhost:1234"}
+        return {
+            "status": "offline",
+            "modelos": [],
+            "fuente": "lmstudio",
+            "error": "LM Studio no está corriendo en localhost:1234",
+        }
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "mensaje": str(e)})
 
@@ -1006,16 +1002,16 @@ async def mapear_modelos_ollama():
             data = resp.json()
             models = []
             for m in data.get("models", []):
-                models.append({
-                    "id": m.get("name", "unknown"),
-                    "proveedor": "ollama",
-                    "tipo": "local"
-                })
+                models.append({"id": m.get("name", "unknown"), "proveedor": "ollama", "tipo": "local"})
             return {"status": "success", "modelos": models, "fuente": "ollama"}
     except Exception as e:
         logger.warning(f"Failed to connect to Ollama: {e}")
-        return {"status": "offline", "modelos": [], "fuente": "ollama",
-                "error": "Ollama no está corriendo o no es accesible en localhost:11434"}
+        return {
+            "status": "offline",
+            "modelos": [],
+            "fuente": "ollama",
+            "error": "Ollama no está corriendo o no es accesible en localhost:11434",
+        }
 
 
 @app.post("/api/modelos/ollama/pull")
@@ -1037,7 +1033,9 @@ async def pull_ollama_model(request: Request):
         if success:
             return {"status": "success", "message": f"Modelo {model_tag} descargado e instalado."}
 
-        return JSONResponse(status_code=500, content={"status": "error", "message": f"Falló la descarga del modelo {model_tag}."})
+        return JSONResponse(
+            status_code=500, content={"status": "error", "message": f"Falló la descarga del modelo {model_tag}."}
+        )
     except Exception as e:
         logger.error(f"Error pulling model: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -1067,7 +1065,7 @@ async def mapear_modelos_openrouter():
                     "id": m.get("id"),
                     "name": m.get("name", m.get("id")),
                     "context_length": m.get("context_length", 0),
-                    "pricing": {"prompt": prompt_cost, "completion": completion_cost}
+                    "pricing": {"prompt": prompt_cost, "completion": completion_cost},
                 }
                 if is_free:
                     gratuitos.append(entry)
@@ -1079,11 +1077,10 @@ async def mapear_modelos_openrouter():
                 "gratuitos": gratuitos,
                 "pago": pago,
                 "total_gratis": len(gratuitos),
-                "total_pago": len(pago)
+                "total_pago": len(pago),
             }
     except httpx.ConnectError:
-        return {"status": "offline", "gratuitos": [], "pago": [],
-                "error": "No se pudo conectar con OpenRouter"}
+        return {"status": "offline", "gratuitos": [], "pago": [], "error": "No se pudo conectar con OpenRouter"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "mensaje": str(e)})
 
@@ -1108,13 +1105,15 @@ async def search_files(q: str = ""):
                 except Exception:
                     size = 0
                 relative_path = os.path.relpath(full_path, PROJECT_ROOT)
-                results.append({
-                    "nombre": file,
-                    "ruta": os.path.abspath(full_path),
-                    "ruta_relativa": relative_path,
-                    "tamaño_bytes": size,
-                    "extension": os.path.splitext(file)[1].lower()
-                })
+                results.append(
+                    {
+                        "nombre": file,
+                        "ruta": os.path.abspath(full_path),
+                        "ruta_relativa": relative_path,
+                        "tamaño_bytes": size,
+                        "extension": os.path.splitext(file)[1].lower(),
+                    }
+                )
                 count += 1
                 if count >= 30:
                     break
@@ -1138,10 +1137,7 @@ async def webhook_externo(request: Request):
     logger.info(f"Webhook received: {data}")
     success = await gateway.publish_event("canal.sensorial.periferico", data)
 
-    return {
-        "status": "forwarded" if success else "failed",
-        "payload_relayed": data
-    }
+    return {"status": "forwarded" if success else "failed", "payload_relayed": data}
 
 
 @app.post("/upload_sensorial")
@@ -1161,18 +1157,17 @@ async def upload_sensorial(file: UploadFile = File(...)):
             f.write(await file.read())
 
         # Publish event
-        file_payload = {
-            "ruta_local": os.path.abspath(dest_path),
-            "nombre": safe_filename,
-            "timestamp": time.time()
-        }
+        file_payload = {"ruta_local": os.path.abspath(dest_path), "nombre": safe_filename, "timestamp": time.time()}
         success = await gateway.publish_event("canal.sensorial.archivo_recibido", file_payload)
 
-        return JSONResponse(status_code=200, content={
-            "status": "success" if success else "broker_offline",
-            "file_path": os.path.abspath(dest_path),
-            "filename": safe_filename
-        })
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "success" if success else "broker_offline",
+                "file_path": os.path.abspath(dest_path),
+                "filename": safe_filename,
+            },
+        )
     except Exception as e:
         logger.error(f"Error handling file upload: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -1214,10 +1209,7 @@ async def websocket_sensorial(websocket: WebSocket):
                 purge_event = {
                     "action": "publish",
                     "topic": "system",
-                    "data": {
-                        "action": "purge",
-                        "timestamp": time.time()
-                    }
+                    "data": {"action": "purge", "timestamp": time.time()},
                 }
                 # Publish direct event to system topic
                 await gateway.publish_event("system", purge_event["data"])
@@ -1265,13 +1257,15 @@ async def periodic_telemetry_loop():
                             tbl = db.open_table("memoria_fractal")
                             df = tbl.to_pandas().head(100)
                             for _, row in df.iterrows():
-                                memory_nodes.append({
-                                    "text": str(row.get("text", "")),
-                                    "x": float(row.get("coordenada_x", 0.0)),
-                                    "y": float(row.get("coordenada_y", 0.0)),
-                                    "z": float(row.get("coordenada_z", 0.0)),
-                                    "w": float(row.get("coordenada_w", 100.0)),
-                                })
+                                memory_nodes.append(
+                                    {
+                                        "text": str(row.get("text", "")),
+                                        "x": float(row.get("coordenada_x", 0.0)),
+                                        "y": float(row.get("coordenada_y", 0.0)),
+                                        "z": float(row.get("coordenada_z", 0.0)),
+                                        "w": float(row.get("coordenada_w", 100.0)),
+                                    }
+                                )
                     except Exception:
                         pass
 
@@ -1282,8 +1276,8 @@ async def periodic_telemetry_loop():
                         "gpu_name": "NVIDIA GeForce RTX 5060 Ti",
                         "emotion": emotion,
                         "memory_nodes": memory_nodes,
-                        "timestamp": time.time()
-                    }
+                        "timestamp": time.time(),
+                    },
                 }
                 await gateway.broadcast_to_websockets(payload)
         except Exception as e:
@@ -1296,9 +1290,11 @@ async def periodic_telemetry_loop():
 # ============================================================================
 cuadernos_mgr = CuadernosManager()
 
+
 @app.get("/api/cuadernos")
 async def api_list_cuadernos():
     return {"status": "success", "cuadernos": cuadernos_mgr.list_cuadernos()}
+
 
 @app.post("/api/cuadernos")
 async def api_create_cuaderno(request: Request):
@@ -1307,6 +1303,7 @@ async def api_create_cuaderno(request: Request):
     description = body.get("description", "")
     cuaderno = cuadernos_mgr.create_cuaderno(title, description)
     return {"status": "success", "cuaderno": cuaderno}
+
 
 @app.post("/api/cuadernos/investigar")
 async def api_investigar_cuaderno(request: Request):
@@ -1318,12 +1315,14 @@ async def api_investigar_cuaderno(request: Request):
     cuaderno = await cuadernos_mgr.investigar_y_crear_cuaderno(tema, provider_key)
     return {"status": "success", "cuaderno": cuaderno, "message": f"Investigación iniciada para '{tema}'"}
 
+
 @app.delete("/api/cuadernos/{notebook_id}")
 async def api_delete_cuaderno(notebook_id: str):
     success = cuadernos_mgr.delete_cuaderno(notebook_id)
     if not success:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Cuaderno no encontrado"})
     return {"status": "success", "message": f"Cuaderno {notebook_id} eliminado"}
+
 
 @app.post("/api/cuadernos/{notebook_id}/fuentes")
 async def api_add_fuente_cuaderno(notebook_id: str, file: UploadFile = File(...), description: str = Form(None)):
@@ -1333,6 +1332,7 @@ async def api_add_fuente_cuaderno(notebook_id: str, file: UploadFile = File(...)
         return {"status": "success", "fuente": fuente}
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+
 
 @app.post("/api/cuadernos/{notebook_id}/sintesis")
 async def api_generar_sintesis_cuaderno(notebook_id: str, request: Request):
@@ -1344,6 +1344,7 @@ async def api_generar_sintesis_cuaderno(notebook_id: str, request: Request):
         return {"status": "success", "nota": nota}
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+
 
 @app.post("/api/cuadernos/{notebook_id}/chat")
 async def api_chat_cuaderno(notebook_id: str, request: Request):
@@ -1367,17 +1368,17 @@ async def api_chat_cuaderno(notebook_id: str, request: Request):
             search_web=search_web,
             max_web_results=max_web_results,
             response_style=response_style,
-            provider_api_key=provider_key
+            provider_api_key=provider_key,
         ):
             yield chunk
 
     return StreamingResponse(stream_generator(), media_type="text/plain")
 
 
-
 # ============================================================================
 # ENDPOINTS WORKSPACE (Gestor de Proyectos estilo VS Code)
 # ============================================================================
+
 
 def build_dir_tree(dir_path: str, max_depth: int = 3, current_depth: int = 0) -> list[dict]:
     if not os.path.exists(dir_path) or current_depth > max_depth:
@@ -1394,7 +1395,7 @@ def build_dir_tree(dir_path: str, max_depth: int = 3, current_depth: int = 0) ->
                 "name": entry,
                 "path": full_path,
                 "is_dir": is_dir,
-                "children": build_dir_tree(full_path, max_depth, current_depth + 1) if is_dir else []
+                "children": build_dir_tree(full_path, max_depth, current_depth + 1) if is_dir else [],
             }
             items.append(item)
     except Exception as e:
@@ -1412,7 +1413,7 @@ async def api_workspace_tree(path: str | None = None):
         "status": "success",
         "workspace_path": target_path,
         "workspace_name": os.path.basename(target_path) or target_path,
-        "tree": tree
+        "tree": tree,
     }
 
 
@@ -1429,21 +1430,14 @@ async def api_workspace_clone_git(request: Request):
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git", "clone", repo_url, target_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            "git", "clone", repo_url, target_dir, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(stderr.decode("utf-8", errors="ignore"))
 
         tree = build_dir_tree(target_dir)
-        return {
-            "status": "success",
-            "workspace_path": target_dir,
-            "workspace_name": folder_name,
-            "tree": tree
-        }
+        return {"status": "success", "workspace_path": target_dir, "workspace_name": folder_name, "tree": tree}
     except Exception as e:
         logger.error(f"Error en git clone: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -1462,7 +1456,7 @@ async def run_server():
         host="127.0.0.1",
         port=gateway.web_port,
         log_level="info",
-        loop="asyncio"  # Force uvicorn to share the running asyncio loop
+        loop="asyncio",  # Force uvicorn to share the running asyncio loop
     )
     server = uvicorn.Server(config)
     logger.info(f"Starting Web API and WebSocket Gateway on http://127.0.0.1:{gateway.web_port}...")
@@ -1474,4 +1468,3 @@ if __name__ == "__main__":
         asyncio.run(run_server())
     except KeyboardInterrupt:
         logger.info("Sistema Periférico stopped.")
-

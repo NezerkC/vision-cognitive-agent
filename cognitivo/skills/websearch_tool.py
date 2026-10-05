@@ -198,7 +198,7 @@ class WebSearchEngine:
             query,
             f"{query} foros comunidad reddit stackoverflow",
             f"{query} tutorial explicacion video guia",
-            f"{query} datos ejemplos documentacion"
+            f"{query} datos ejemplos documentacion",
         ]
 
         seen_urls = set()
@@ -229,17 +229,13 @@ class WebSearchEngine:
                 pass
 
         if combined_results:
-            return SearchResponse(
-                status="success",
-                results=combined_results[:max_results],
-                source="duckduckgo"
-            )
+            return SearchResponse(status="success", results=combined_results[:max_results], source="duckduckgo")
 
         return SearchResponse(
             status="error",
             results=[],
             source="mock",
-            error="No se pudieron obtener suficientes resultados en la búsqueda profunda."
+            error="No se pudieron obtener suficientes resultados en la búsqueda profunda.",
         )
 
     async def _search_ddg(self, query: str, max_results: int) -> list[SearchResult]:
@@ -282,17 +278,20 @@ class WebSearchEngine:
         if not api_key:
             raise ValueError("TAVILY_API_KEY not set in environment")
 
-        async with aiohttp.ClientSession() as session, session.post(
-            "https://api.tavily.com/search",
-            json={
-                "api_key": api_key,
-                "query": query,
-                "search_depth": "basic",
-                "include_answer": False,
-                "max_results": max_results,
-            },
-            timeout=aiohttp.ClientTimeout(total=8),
-        ) as resp:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": api_key,
+                    "query": query,
+                    "search_depth": "basic",
+                    "include_answer": False,
+                    "max_results": max_results,
+                },
+                timeout=aiohttp.ClientTimeout(total=8),
+            ) as resp,
+        ):
             if resp.status != 200:
                 raise RuntimeError(f"Tavily returned HTTP {resp.status}")
             data = await resp.json()

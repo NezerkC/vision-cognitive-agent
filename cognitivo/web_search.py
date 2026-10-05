@@ -79,10 +79,7 @@ class WebSearchDaemon:
                     "request_id": request_id,
                     "status": response.status,
                     "source": response.source,
-                    "results": [
-                        {"title": r.title, "url": r.url, "snippet": r.snippet}
-                        for r in response.results
-                    ],
+                    "results": [{"title": r.title, "url": r.url, "snippet": r.snippet} for r in response.results],
                     "error": response.error,
                     "timestamp": time.time(),
                 }
@@ -118,10 +115,15 @@ class WebSearchDaemon:
                 reader, writer = await asyncio.open_connection(self.host, self.port)
                 logger.info("Connected to event broker.")
 
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["canal.web.busqueda", "system"],
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps(
+                        {
+                            "action": "subscribe",
+                            "topics": ["canal.web.busqueda", "system"],
+                        }
+                    )
+                    + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 

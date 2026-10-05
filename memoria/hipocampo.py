@@ -7,9 +7,10 @@ import sys
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] Hipocampo: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("Hipocampo")
+
 
 class Hipocampo:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000):
@@ -39,14 +40,15 @@ class Hipocampo:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to task completion and LLM responses
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": [
-                        "canal.sistema.fin_tarea",
-                        "canal.cognitivo.respuesta",
-                        "system"
-                    ]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps(
+                        {
+                            "action": "subscribe",
+                            "topics": ["canal.sistema.fin_tarea", "canal.cognitivo.respuesta", "system"],
+                        }
+                    )
+                    + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -81,7 +83,9 @@ class Hipocampo:
                         last_20 = history[-20:]
                         conversation_block = "\n".join(last_20)
 
-                        logger.info(f"Consolidating memory for task: {task_id}. Length of history: {len(last_20)} lines.")
+                        logger.info(
+                            f"Consolidating memory for task: {task_id}. Length of history: {len(last_20)} lines."
+                        )
 
                         request_id = f"hipo-{task_id}"
                         self.pending_tasks[request_id] = task_id
@@ -106,8 +110,8 @@ class Hipocampo:
                                 "request_id": request_id,
                                 "prompt": prompt,
                                 "esfuerzo_requerido": "esfuerzo_bajo",
-                                "mock": mock
-                            }
+                                "mock": mock,
+                            },
                         }
                         writer.write((json.dumps(summarize_request) + "\n").encode("utf-8"))
                         await writer.drain()
@@ -123,7 +127,9 @@ class Hipocampo:
                             status = data.get("status", "")
 
                             if status != "success" or not response_text:
-                                logger.error(f"Summarization failed for request {request_id}. Memory consolidation aborted.")
+                                logger.error(
+                                    f"Summarization failed for request {request_id}. Memory consolidation aborted."
+                                )
                                 continue
 
                             logger.info(f"Consolidated summary received for task {task_id}.")
@@ -141,12 +147,8 @@ class Hipocampo:
                                     "coordenada_y": 1.0,
                                     "temperatura_z": 100.0,  # Hot tier
                                     "escala_magnitud": "KB",
-                                    "metadata": {
-                                        "task_id": task_id,
-                                        "tags": tags,
-                                        "source": "hipocampo_summary"
-                                    }
-                                }
+                                    "metadata": {"task_id": task_id, "tags": tags, "source": "hipocampo_summary"},
+                                },
                             }
                             writer.write((json.dumps(save_event) + "\n").encode("utf-8"))
                             await writer.drain()
@@ -155,6 +157,7 @@ class Hipocampo:
             except Exception as e:
                 logger.error(f"Error in Hipocampo loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
+
 
 if __name__ == "__main__":
     hipocampo = Hipocampo()

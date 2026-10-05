@@ -5,18 +5,16 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] TestPhase4: %(message)s")
 logger = logging.getLogger("TestPhase4")
 
+
 async def test_sensory_pipeline():
     logger.info("Connecting to event broker...")
     reader, writer = await asyncio.open_connection("127.0.0.1", 5000)
 
     # Subscribe to vision captures and interpreted contexts
-    subscribe_msg = json.dumps({
-        "action": "subscribe",
-        "topics": [
-            "canal.sensorial.vision",
-            "canal.sistema.contexto_actual"
-        ]
-    }) + "\n"
+    subscribe_msg = (
+        json.dumps({"action": "subscribe", "topics": ["canal.sensorial.vision", "canal.sistema.contexto_actual"]})
+        + "\n"
+    )
     writer.write(subscribe_msg.encode("utf-8"))
     await writer.drain()
     logger.info("Subscribed to vision and system context topics.")
@@ -60,6 +58,7 @@ async def test_sensory_pipeline():
         logger.error("\n==============================================")
         logger.error(f"VERIFICATION FAILED: Vision={vision_captured}, Context={context_captured}")
         logger.error("==============================================")
+
 
 if __name__ == "__main__":
     asyncio.run(test_sensory_pipeline())

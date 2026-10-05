@@ -42,9 +42,9 @@ def calculate_rms(audio_data: bytes) -> float:
 
 
 def run_calibration():
-    print("="*60)
+    print("=" * 60)
     print("        VISION OS: CALIBRADOR SENSORIAL DE AUDIO (MIC)")
-    print("="*60)
+    print("=" * 60)
 
     if not pyaudio:
         print("\n[ERROR] PyAudio no está instalado en este entorno.")
@@ -64,13 +64,7 @@ def run_calibration():
     p = pyaudio.PyAudio()
 
     try:
-        stream = p.open(
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RATE,
-            input=True,
-            frames_per_buffer=CHUNK
-        )
+        stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
     except Exception as e:
         print(f"\n[ERROR] No se pudo abrir el canal del micrófono: {e}")
         print("Asegurate de tener un micrófono conectado y con los drivers instalados.")
@@ -121,6 +115,7 @@ def run_mock_calibration():
 
             # Add minor random noise
             import random
+
             rms += random.uniform(-0.001, 0.002)
             rms = max(0.0001, rms)
 

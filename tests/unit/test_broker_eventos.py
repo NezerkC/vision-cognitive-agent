@@ -1,4 +1,5 @@
 """Unit tests for EventBroker TCP bus."""
+
 import pytest
 
 from core.broker_eventos import EventBroker
@@ -8,10 +9,7 @@ from core.schemas import EventEnvelope
 @pytest.mark.unit
 def test_event_envelope_validation():
     """EventEnvelope validates incoming payload structure."""
-    envelope = EventEnvelope.validate_payload(
-        topic="canal.memoria",
-        data={"action": "guardar", "text": "Test memory"}
-    )
+    envelope = EventEnvelope.validate_payload(topic="canal.memoria", data={"action": "guardar", "text": "Test memory"})
     assert envelope.topic == "canal.memoria"
     assert envelope.data["action"] == "guardar"
 

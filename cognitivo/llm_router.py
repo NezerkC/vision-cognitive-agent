@@ -15,25 +15,16 @@ from gestor_modelos_locales import pull_model_if_missing
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] LobeFrontal: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("LLMRouter")
 
-CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "config",
-    "llm_router.yaml"
-)
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "llm_router.yaml")
 EFFORT_LEVELS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "config",
-    "effort_levels.json"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "effort_levels.json"
 )
-EMOTIONS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "config",
-    "emotions.json"
-)
+EMOTIONS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "emotions.json")
+
 
 class LLMRouter:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000):
@@ -53,9 +44,7 @@ class LLMRouter:
         self.benchmarks = {}
         try:
             benchmark_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "config",
-                "model_benchmarks.json"
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "model_benchmarks.json"
             )
             if os.path.exists(benchmark_path):
                 with open(benchmark_path, encoding="utf-8") as f:
@@ -116,7 +105,9 @@ class LLMRouter:
             logger.warning(f"Failed to load emotions config: {e}")
 
         if mock:
-            logger.info(f"[MOCK] Simulating completion for model {model_name} at effort '{effort}' (Temp: {temp}, MaxTokens: {max_tokens})")
+            logger.info(
+                f"[MOCK] Simulating completion for model {model_name} at effort '{effort}' (Temp: {temp}, MaxTokens: {max_tokens})"
+            )
             return f"Mock response for prompt: '{prompt}' using {model_name} (temperature={temp})", model_name
 
         # Ensure local model is downloaded if it is an Ollama model
@@ -129,7 +120,9 @@ class LLMRouter:
         api_key_env = model_cfg.get("api_key")
         api_key = os.environ.get(api_key_env, api_key_env) if api_key_env else None
 
-        logger.info(f"Attempting LLM call using model: {model_name} (Effort: {effort}, Temp: {temp}, MaxTokens: {max_tokens})")
+        logger.info(
+            f"Attempting LLM call using model: {model_name} (Effort: {effort}, Temp: {temp}, MaxTokens: {max_tokens})"
+        )
 
         try:
             # Configure API base if provided (e.g. for LM Studio local models)
@@ -140,9 +133,12 @@ class LLMRouter:
                 kwargs["api_key"] = api_key
 
             # Detect if model is local (Ollama or LM Studio) for generous timeout
-            es_local = (
-                model_name.startswith("ollama/") or
-                (api_base and any(h in (api_base or "").lower() for h in ["localhost:11434", "localhost:1234", "127.0.0.1:11434", "127.0.0.1:1234"]))
+            es_local = model_name.startswith("ollama/") or (
+                api_base
+                and any(
+                    h in (api_base or "").lower()
+                    for h in ["localhost:11434", "localhost:1234", "127.0.0.1:11434", "127.0.0.1:1234"]
+                )
             )
 
             timeout_segundos = 30.0
@@ -155,7 +151,9 @@ class LLMRouter:
                     measured_time = float(benchmark_data.get("time_seconds", 30.0))
                     # Allow 2.5x the measured benchmark time as timeout buffer, minimum 45 seconds
                     timeout_segundos = max(measured_time * 2.5, 45.0)
-                    logger.info(f"Using dynamic benchmarked timeout: {timeout_segundos:.2f}s for local model {model_name} (measured={measured_time:.2f}s)")
+                    logger.info(
+                        f"Using dynamic benchmarked timeout: {timeout_segundos:.2f}s for local model {model_name} (measured={measured_time:.2f}s)"
+                    )
                 else:
                     timeout_segundos = 300.0  # Default generous timeout for unbenchmarked local models
                     logger.info(f"No benchmark found for local model {model_name}. Defaulting to {timeout_segundos}s.")
@@ -168,7 +166,7 @@ class LLMRouter:
                 timeout=timeout_segundos,
                 temperature=temp,
                 max_tokens=max_tokens,
-                **kwargs
+                **kwargs,
             )
             response_text = response.choices[0].message.content
             return response_text, model_name
@@ -196,7 +194,7 @@ class LLMRouter:
                             temperature=temp,
                             max_tokens=max_tokens,
                             api_base="https://openrouter.ai/api/v1",
-                            api_key=or_key
+                            api_key=or_key,
                         )
                         response_text = response.choices[0].message.content
                         logger.info("Successfully recovered using OpenRouter fallback!")
@@ -209,13 +207,7 @@ class LLMRouter:
             raise e
 
     async def publish_log(self, writer, message: str):
-        event = {
-            "action": "publish",
-            "topic": "canal.sistema.contexto_actual",
-            "data": {
-                "contexto": message
-            }
-        }
+        event = {"action": "publish", "topic": "canal.sistema.contexto_actual", "data": {"contexto": message}}
         try:
             writer.write((json.dumps(event) + "\n").encode("utf-8"))
             await writer.drain()
@@ -226,7 +218,7 @@ class LLMRouter:
         """
         Publishes a search request to the LanceDB manager and awaits the response.
         """
-        if not hasattr(self, 'active_writer') or not self.active_writer:
+        if not hasattr(self, "active_writer") or not self.active_writer:
             logger.warning("No active broker connection for memory search.")
             return []
 
@@ -241,8 +233,8 @@ class LLMRouter:
                 "request_id": request_id,
                 "query": query,
                 "top_n": 3,
-                "emotion_filter": emotion_filter
-            }
+                "emotion_filter": emotion_filter,
+            },
         }
         try:
             self.active_writer.write((json.dumps(search_msg) + "\n").encode("utf-8"))
@@ -262,10 +254,15 @@ class LLMRouter:
                 self.active_writer = writer
 
                 # Subscribe to relevant topics including memory responses
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["canal.cognitivo.peticion", "canal.memoria.respuesta", "system"]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps(
+                        {
+                            "action": "subscribe",
+                            "topics": ["canal.cognitivo.peticion", "canal.memoria.respuesta", "system"],
+                        }
+                    )
+                    + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -311,9 +308,7 @@ class LLMRouter:
                             continue
 
                         # Process prompt asynchronously to not block event loop
-                        asyncio.create_task(
-                            self.process_request(writer, request_id, prompt, effort, mock)
-                        )
+                        asyncio.create_task(self.process_request(writer, request_id, prompt, effort, mock))
 
             except Exception as e:
                 logger.error(f"Error in LLM Router loop: {e}. Retrying connection in 5 seconds...")
@@ -325,6 +320,7 @@ class LLMRouter:
 
             # Execute StateGraph from orquestador_graph
             from orquestador_graph import ejecutar_orquestador_graph
+
             response_text = await ejecutar_orquestador_graph(prompt, request_id, mock)
 
             response_event = {
@@ -334,19 +330,15 @@ class LLMRouter:
                     "request_id": request_id,
                     "response": response_text,
                     "model_used": "LangGraph StateGraph (Orquestador)",
-                    "status": "success"
-                }
+                    "status": "success",
+                },
             }
         except Exception as e:
             logger.error(f"All LLM attempts failed for request {request_id}: {e}")
             response_event = {
                 "action": "publish",
                 "topic": "canal.cognitivo.respuesta",
-                "data": {
-                    "request_id": request_id,
-                    "error": str(e),
-                    "status": "failed"
-                }
+                "data": {"request_id": request_id, "error": str(e), "status": "failed"},
             }
 
         try:
@@ -356,10 +348,12 @@ class LLMRouter:
         except Exception as e:
             logger.error(f"Failed to publish response to broker: {e}")
 
+
 # ---------------------------------------------------------------------------
 # Helper function: enrutar_peticion — llama al LLM sin instanciar el router
 # ---------------------------------------------------------------------------
 _global_router: LLMRouter | None = None
+
 
 async def enrutar_peticion(prompt: str, esfuerzo: str = "esfuerzo_bajo", mock: bool = False) -> str:
     """

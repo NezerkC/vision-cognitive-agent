@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] LobeParietalOido: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("OidoParietal")
 
@@ -71,9 +71,7 @@ class OidoParietal:
     def load_config(self):
         try:
             config_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "config",
-                "hardware_interfaces.json"
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "hardware_interfaces.json"
             )
             if os.path.exists(config_path):
                 with open(config_path, encoding="utf-8") as f:
@@ -83,7 +81,9 @@ class OidoParietal:
                 self.energy_threshold = oido_cfg.get("energy_threshold", 300)
                 self.dynamic_energy_threshold = oido_cfg.get("dynamic_energy_threshold", True)
                 self.whisper_model = oido_cfg.get("whisper_model", "tiny")
-                logger.info(f"Loaded oido config: device={self.input_device_index}, threshold={self.energy_threshold}, model={self.whisper_model}")
+                logger.info(
+                    f"Loaded oido config: device={self.input_device_index}, threshold={self.energy_threshold}, model={self.whisper_model}"
+                )
             else:
                 self.input_device_index = None
                 self.energy_threshold = 300
@@ -131,11 +131,7 @@ class OidoParietal:
             while True:
                 await asyncio.sleep(60)
 
-        mock_commands = [
-            "abre notepad",
-            "corre un script de prueba",
-            "hola vision, reporta el estado actual"
-        ]
+        mock_commands = ["abre notepad", "corre un script de prueba", "hola vision, reporta el estado actual"]
         cmd_idx = 0
 
         while True:
@@ -153,11 +149,7 @@ class OidoParietal:
             payload = {
                 "action": "publish",
                 "topic": "canal.sensorial.audio.transcripcion",
-                "data": {
-                    "transcripcion": command,
-                    "timestamp": time.time(),
-                    "mock": True
-                }
+                "data": {"transcripcion": command, "timestamp": time.time(), "mock": True},
             }
             try:
                 writer.write((json.dumps(payload) + "\n").encode("utf-8"))
@@ -207,13 +199,12 @@ class OidoParietal:
                     elif action == "reload_arranque":
                         try:
                             arr_path = os.path.join(
-                                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "config",
-                                "arranque.yaml"
+                                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "arranque.yaml"
                             )
                             if os.path.exists(arr_path):
                                 with open(arr_path, encoding="utf-8") as f:
                                     import yaml
+
                                     arr_cfg = yaml.safe_load(f)
                                 mock_flag = arr_cfg.get("modos_mock", {}).get("oido_parietal", True)
                                 self.force_mock = mock_flag or ("--mock" in sys.argv)
@@ -233,10 +224,9 @@ class OidoParietal:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to system commands
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["system", "canal.sistema.comando"]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps({"action": "subscribe", "topics": ["system", "canal.sistema.comando"]}) + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -288,11 +278,7 @@ class OidoParietal:
                             payload = {
                                 "action": "publish",
                                 "topic": "canal.sensorial.audio.transcripcion",
-                                "data": {
-                                    "transcripcion": text,
-                                    "timestamp": time.time(),
-                                    "mock": False
-                                }
+                                "data": {"transcripcion": text, "timestamp": time.time(), "mock": False},
                             }
                             writer.write((json.dumps(payload) + "\n").encode("utf-8"))
                             await writer.drain()
@@ -300,6 +286,7 @@ class OidoParietal:
             except Exception as e:
                 logger.error(f"Error in OidoParietal loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
+
 
 if __name__ == "__main__":
     mock_flag = "--mock" in sys.argv

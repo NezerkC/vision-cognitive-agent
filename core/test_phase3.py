@@ -5,19 +5,18 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] TestPhase3: %(message)s")
 logger = logging.getLogger("TestPhase3")
 
+
 async def test_memory_pipeline():
     logger.info("Connecting to event broker...")
     reader, writer = await asyncio.open_connection("127.0.0.1", 5000)
 
     # Subscribe to memory and search response topics
-    subscribe_msg = json.dumps({
-        "action": "subscribe",
-        "topics": [
-            "canal.memoria",
-            "canal.memoria.respuesta",
-            "canal.memoria.error"
-        ]
-    }) + "\n"
+    subscribe_msg = (
+        json.dumps(
+            {"action": "subscribe", "topics": ["canal.memoria", "canal.memoria.respuesta", "canal.memoria.error"]}
+        )
+        + "\n"
+    )
     writer.write(subscribe_msg.encode("utf-8"))
     await writer.drain()
     logger.info("Subscribed to memory topics.")
@@ -29,10 +28,7 @@ async def test_memory_pipeline():
     # CASE 1: Trigger task completion (will kickstart Hipocampo summary)
     # -------------------------------------------------------------
     task_id = "task-integration-777"
-    mock_history = [
-        f"user: message number {i}" if i % 2 == 0 else f"agent: response number {i}"
-        for i in range(20)
-    ]
+    mock_history = [f"user: message number {i}" if i % 2 == 0 else f"agent: response number {i}" for i in range(20)]
 
     task_completion_event = {
         "action": "publish",
@@ -40,8 +36,8 @@ async def test_memory_pipeline():
         "data": {
             "task_id": task_id,
             "history": mock_history,
-            "mock": True  # Enable mock LLM completion
-        }
+            "mock": True,  # Enable mock LLM completion
+        },
     }
 
     logger.info(f"Publishing fin_tarea event for {task_id}...")
@@ -88,12 +84,7 @@ async def test_memory_pipeline():
     search_event = {
         "action": "publish",
         "topic": "canal.memoria",
-        "data": {
-            "action": "buscar",
-            "query": "Mock response for prompt",
-            "top_n": 2,
-            "request_id": search_request_id
-        }
+        "data": {"action": "buscar", "query": "Mock response for prompt", "top_n": 2, "request_id": search_request_id},
     }
 
     logger.info("Publishing semantic search query to LanceDB manager...")
@@ -121,7 +112,9 @@ async def test_memory_pipeline():
                 results = data.get("results", [])
                 logger.info(f"Received search results from database: {results}")
                 if len(results) > 0 and results[0].get("escala_magnitud") == "KB":
-                    logger.info("VERIFICATION PASS: Semantic search returned indexed data with correct spatial metadata.")
+                    logger.info(
+                        "VERIFICATION PASS: Semantic search returned indexed data with correct spatial metadata."
+                    )
                     search_success = True
                     break
     except asyncio.TimeoutError:
@@ -138,6 +131,7 @@ async def test_memory_pipeline():
         logger.error("\n==============================================")
         logger.error(f"VERIFICATION FAILED: Guardar={guardar_captured}, Search={search_success}")
         logger.error("==============================================")
+
 
 if __name__ == "__main__":
     asyncio.run(test_memory_pipeline())

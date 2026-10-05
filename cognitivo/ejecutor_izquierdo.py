@@ -8,7 +8,7 @@ import time
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] HemisferioIzquierdo: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("EjecutorIzquierdo")
 
@@ -34,9 +34,14 @@ class EjecutorIzquierdo:
         Visual warning console log printed in red/orange.
         """
         # Red/Orange safety alert
-        print("\033[93m" + "="*80 + "\n[ALERTA DE SEGURIDAD] HEMISFERIO IZQUIERDO TOMANDO CONTROL DEL SISTEMA" + "\033[0m")
+        print(
+            "\033[93m"
+            + "=" * 80
+            + "\n[ALERTA DE SEGURIDAD] HEMISFERIO IZQUIERDO TOMANDO CONTROL DEL SISTEMA"
+            + "\033[0m"
+        )
         print(f"\033[91mComandos UI recibidos: {commands}\033[0m")
-        print("\033[93m" + "="*80 + "\033[0m")
+        print("\033[93m" + "=" * 80 + "\033[0m")
 
         if self.is_mock:
             logger.info("[MOCK MODE] Simulating UI actions without physical execution.")
@@ -73,9 +78,7 @@ class EjecutorIzquierdo:
         try:
             # We use shell execution to easily support cross-platform scripts
             process = await asyncio.create_subprocess_shell(
-                command_str,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                command_str, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
 
@@ -88,7 +91,7 @@ class EjecutorIzquierdo:
                 "status": "success" if exit_code == 0 else "error",
                 "exit_code": exit_code,
                 "stdout": stdout_str,
-                "stderr": stderr_str
+                "stderr": stderr_str,
             }
         except Exception as e:
             logger.error(f"Error executing command script: {e}")
@@ -117,11 +120,7 @@ class EjecutorIzquierdo:
         payload = {
             "action": "publish",
             "topic": "canal.ejecucion.resultado",
-            "data": {
-                "request_id": request_id,
-                "resultado": result,
-                "timestamp": time.time()
-            }
+            "data": {"request_id": request_id, "resultado": result, "timestamp": time.time()},
         }
         try:
             writer.write((json.dumps(payload) + "\n").encode("utf-8"))
@@ -137,10 +136,9 @@ class EjecutorIzquierdo:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to execution actions and system commands
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["canal.ejecucion.accion", "system"]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps({"action": "subscribe", "topics": ["canal.ejecucion.accion", "system"]}) + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -164,10 +162,11 @@ class EjecutorIzquierdo:
                                 import os
 
                                 import yaml
+
                                 arr_path = os.path.join(
                                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "config",
-                                    "arranque.yaml"
+                                    "arranque.yaml",
                                 )
                                 if os.path.exists(arr_path):
                                     with open(arr_path, encoding="utf-8") as f:

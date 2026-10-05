@@ -23,8 +23,7 @@ logger = logging.getLogger("CerebeloMemoria4D")
 
 
 def calcular_distancia_4d(
-    x1: float, y1: float, z1: float, w1: float,
-    x2: float = 0.0, y2: float = 0.0, z2: float = 0.0, w2: float = 0.0
+    x1: float, y1: float, z1: float, w1: float, x2: float = 0.0, y2: float = 0.0, z2: float = 0.0, w2: float = 0.0
 ) -> float:
     """
     Computes the 4D spatial quadratic distance metric:

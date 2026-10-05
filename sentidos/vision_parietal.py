@@ -21,15 +21,14 @@ except ImportError:
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] LobeParietal: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("VisionParietal")
 
 CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "config",
-    "hardware_interfaces.json"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "hardware_interfaces.json"
 )
+
 
 class VisionParietal:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000, force_mock: bool = False):
@@ -77,7 +76,9 @@ class VisionParietal:
             self.camara_index = int(vision_cfg.get("camara_index", 0))
             self.camera_ip = vision_cfg.get("camera_ip", "").strip()
 
-            logger.info(f"Loaded config: interval={self.interval}s, monitor={self.monitor_index}, threshold={self.diff_threshold}, camera={self.camara_activa} (index={self.camara_index}, IP='{self.camera_ip}')")
+            logger.info(
+                f"Loaded config: interval={self.interval}s, monitor={self.monitor_index}, threshold={self.diff_threshold}, camera={self.camara_activa} (index={self.camara_index}, IP='{self.camera_ip}')"
+            )
         except Exception as e:
             logger.warning(f"Failed to load config: {e}. Using default values.")
 
@@ -136,11 +137,11 @@ class VisionParietal:
                 scale = 640.0 / w
                 frame = cv2.resize(frame, (640, int(h * scale)))
 
-            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            ret, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
             if not ret:
                 return ""
 
-            return base64.b64encode(buffer).decode('utf-8')
+            return base64.b64encode(buffer).decode("utf-8")
         except Exception as e:
             logger.error(f"Error capturing camera frame: {e}")
             if self.cap is not None:
@@ -190,13 +191,12 @@ class VisionParietal:
                     elif action == "reload_arranque":
                         try:
                             arr_path = os.path.join(
-                                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "config",
-                                "arranque.yaml"
+                                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "arranque.yaml"
                             )
                             if os.path.exists(arr_path):
                                 with open(arr_path, encoding="utf-8") as f:
                                     import yaml
+
                                     arr_cfg = yaml.safe_load(f)
                                 mock_flag = arr_cfg.get("modos_mock", {}).get("vision_parietal", True)
                                 self.force_mock = mock_flag or ("--mock" in sys.argv)
@@ -266,10 +266,9 @@ class VisionParietal:
                 logger.info("Connected to event broker.")
 
                 # Register system topics
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["system", "canal.sistema.comando"]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps({"action": "subscribe", "topics": ["system", "canal.sistema.comando"]}) + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -297,7 +296,7 @@ class VisionParietal:
                             img_b64 = await loop.run_in_executor(None, self.image_to_base64, img)
                             self.last_img_b64 = img_b64
                         else:
-                            if not hasattr(self, 'last_img_b64') or self.last_img_b64 is None:
+                            if not hasattr(self, "last_img_b64") or self.last_img_b64 is None:
                                 self.last_img_b64 = await loop.run_in_executor(None, self.image_to_base64, img)
                             img_b64 = self.last_img_b64
 
@@ -310,8 +309,8 @@ class VisionParietal:
                                 "camera_image": cam_b64,
                                 "timestamp": time.time(),
                                 "mock": self.force_mock,
-                                "cambio_detectado": screen_changed
-                            }
+                                "cambio_detectado": screen_changed,
+                            },
                         }
                         writer.write((json.dumps(payload) + "\n").encode("utf-8"))
                         await writer.drain()
@@ -327,6 +326,7 @@ class VisionParietal:
             except Exception as e:
                 logger.error(f"Error in LobeParietal loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
+
 
 if __name__ == "__main__":
     mock_flag = "--mock" in sys.argv

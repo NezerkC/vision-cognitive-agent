@@ -12,23 +12,26 @@ from PIL import Image
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] LobeOccipitalImaginacion: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("ImaginacionOccipital")
 
 
 class ImaginacionOccipital:
-    def __init__(self, host: str = "127.0.0.1", port: int = 5000, comfy_url: str = "http://127.0.0.1:8188/prompt", force_mock: bool = False):
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 5000,
+        comfy_url: str = "http://127.0.0.1:8188/prompt",
+        force_mock: bool = False,
+    ):
         self.host = host
         self.port = port
         self.comfy_url = comfy_url
         self.force_mock = force_mock
 
         # Ensure a directory for output images exists
-        self.output_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "artifacts"
-        )
+        self.output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "artifacts")
         os.makedirs(self.output_dir, exist_ok=True)
 
     async def generate_mock_image(self, prompt: str) -> str:
@@ -72,52 +75,19 @@ class ImaginacionOccipital:
                         "sampler_name": "euler",
                         "scheduler": "normal",
                         "steps": 20,
-                        "latent_image": ["5", 0]
-                    }
+                        "latent_image": ["5", 0],
+                    },
                 },
-                "4": {
-                    "class_type": "CheckpointLoaderSimple",
-                    "inputs": {
-                        "ckpt_name": "v1-5-pruned-emaonly.ckpt"
-                    }
-                },
-                "5": {
-                    "class_type": "EmptyLatentImage",
-                    "inputs": {
-                        "batch_size": 1,
-                        "height": 512,
-                        "width": 512
-                    }
-                },
-                "6": {
-                    "class_type": "CLIPTextEncode",
-                    "inputs": {
-                        "clip": ["4", 1],
-                        "text": prompt
-                    }
-                },
+                "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "v1-5-pruned-emaonly.ckpt"}},
+                "5": {"class_type": "EmptyLatentImage", "inputs": {"batch_size": 1, "height": 512, "width": 512}},
+                "6": {"class_type": "CLIPTextEncode", "inputs": {"clip": ["4", 1], "text": prompt}},
                 "7": {
                     "class_type": "CLIPTextEncode",
-                    "inputs": {
-                        "clip": ["4", 1],
-                        "text": "bad quality, blurry, deformed"
-                    }
+                    "inputs": {"clip": ["4", 1], "text": "bad quality, blurry, deformed"},
                 },
-                "8": {
-                    "class_type": "VAEDecode",
-                    "inputs": {
-                        "samples": ["3", 0],
-                        "vae": ["4", 2]
-                    }
-                },
-                "9": {
-                    "class_type": "SaveImage",
-                    "inputs": {
-                        "filename_prefix": "vision_os",
-                        "images": ["8", 0]
-                    }
-                }
-            }
+                "8": {"class_type": "VAEDecode", "inputs": {"samples": ["3", 0], "vae": ["4", 2]}},
+                "9": {"class_type": "SaveImage", "inputs": {"filename_prefix": "vision_os", "images": ["8", 0]}},
+            },
         }
 
         logger.info(f"Sending prompt request to ComfyUI at {self.comfy_url}...")
@@ -157,12 +127,7 @@ class ImaginacionOccipital:
         response_event = {
             "action": "publish",
             "topic": "canal.imaginacion.respuesta",
-            "data": {
-                "request_id": request_id,
-                "image_path": img_path,
-                "timestamp": time.time(),
-                "status": "success"
-            }
+            "data": {"request_id": request_id, "image_path": img_path, "timestamp": time.time(), "status": "success"},
         }
 
         try:
@@ -180,10 +145,9 @@ class ImaginacionOccipital:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to imagination requests and system shutdown
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["canal.imaginacion.peticion", "system"]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps({"action": "subscribe", "topics": ["canal.imaginacion.peticion", "system"]}) + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 

@@ -12,9 +12,10 @@ except ImportError:
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("EventBroker")
+
 
 class EventBroker:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000):
@@ -162,6 +163,7 @@ class EventBroker:
 
         async with server:
             await server.serve_forever()
+
 
 if __name__ == "__main__":
     broker = EventBroker()

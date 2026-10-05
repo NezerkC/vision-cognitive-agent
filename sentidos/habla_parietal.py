@@ -11,9 +11,10 @@ from concurrent.futures import ThreadPoolExecutor
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] LobeParietalHabla: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("HablaParietal")
+
 
 class HablaParietal:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000, force_mock: bool = False):
@@ -29,9 +30,7 @@ class HablaParietal:
     def load_config(self):
         try:
             config_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "config",
-                "hardware_interfaces.json"
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "hardware_interfaces.json"
             )
             if os.path.exists(config_path):
                 with open(config_path, encoding="utf-8") as f:
@@ -55,7 +54,7 @@ class HablaParietal:
             if not os.path.exists(wav_path):
                 return
 
-            f = wave.open(wav_path, 'rb')
+            f = wave.open(wav_path, "rb")
             p = pyaudio.PyAudio()
             try:
                 stream = p.open(
@@ -63,7 +62,7 @@ class HablaParietal:
                     channels=f.getnchannels(),
                     rate=f.getframerate(),
                     output=True,
-                    output_device_index=device_index
+                    output_device_index=device_index,
                 )
                 data = f.readframes(1024)
                 while data:
@@ -80,17 +79,18 @@ class HablaParietal:
         """Synthesizes speech using pyttsx3 and plays it (or routes it to device)."""
         try:
             import pyttsx3
+
             engine = pyttsx3.init()
 
             # Select Spanish voice if available
-            voices = engine.getProperty('voices')
+            voices = engine.getProperty("voices")
             es_voice = None
             for voice in voices:
-                if 'spanish' in voice.name.lower() or 'es-' in voice.id.lower():
+                if "spanish" in voice.name.lower() or "es-" in voice.id.lower():
                     es_voice = voice.id
                     break
             if es_voice:
-                engine.setProperty('voice', es_voice)
+                engine.setProperty("voice", es_voice)
 
             if device_index is not None:
                 # Render to temp WAV file and play via PyAudio on selected device
@@ -118,8 +118,9 @@ class HablaParietal:
         """Synthesizes speech using edge-tts (natural cloud) and plays it."""
         try:
             import edge_tts
+
             # Use a warm, natural Spanish voice
-            voice = "es-AR-TomasNeural" # Argentina (voseo!)
+            voice = "es-AR-TomasNeural"  # Argentina (voseo!)
 
             communicate = edge_tts.Communicate(text, voice)
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
@@ -130,10 +131,13 @@ class HablaParietal:
 
                 # If device_index is set, notify that edge-tts plays on default.
                 if device_index is not None:
-                    logger.warning("edge-tts plays on Windows default audio device. For routing to specific speaker, use pyttsx3 motor.")
+                    logger.warning(
+                        "edge-tts plays on Windows default audio device. For routing to specific speaker, use pyttsx3 motor."
+                    )
 
                 # Play using PowerShell MediaPlayer (no external player needed)
                 loop = asyncio.get_running_loop()
+
                 def _play():
                     cmd = f"Add-Type -AssemblyName presentationCore; $player = New-Object System.Windows.Media.MediaPlayer; $player.Open('{temp_filename}'); $player.Play(); while ($player.NaturalDuration.HasTimeSpan -eq $false) {{ Start-Sleep -Milliseconds 100 }}; Start-Sleep -Seconds ($player.NaturalDuration.TimeSpan.TotalSeconds + 0.5)"
                     subprocess.run(["powershell", "-Command", cmd], capture_output=True)
@@ -171,10 +175,9 @@ class HablaParietal:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to voice command output and system updates
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["canal.sensorial.audio.hablar", "system"]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps({"action": "subscribe", "topics": ["canal.sensorial.audio.hablar", "system"]}) + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -207,11 +210,12 @@ class HablaParietal:
                                 arr_path = os.path.join(
                                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "config",
-                                    "arranque.yaml"
+                                    "arranque.yaml",
                                 )
                                 if os.path.exists(arr_path):
                                     with open(arr_path, encoding="utf-8") as f:
                                         import yaml
+
                                         cfg = yaml.safe_load(f)
                                     mock_flag = cfg.get("modos_mock", {}).get("habla_parietal", True)
                                     self.force_mock = mock_flag or ("--mock" in sys.argv)
@@ -223,16 +227,16 @@ class HablaParietal:
                 logger.error(f"Error in habla loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
 
+
 if __name__ == "__main__":
     import yaml
+
     mock_flag = "--mock" in sys.argv
 
     if not mock_flag:
         try:
             arr_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "config",
-                "arranque.yaml"
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "arranque.yaml"
             )
             if os.path.exists(arr_path):
                 with open(arr_path, encoding="utf-8") as f:

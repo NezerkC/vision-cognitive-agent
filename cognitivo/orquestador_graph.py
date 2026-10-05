@@ -10,6 +10,7 @@ from langgraph.graph import END, StateGraph
 # Setup logger
 logger = logging.getLogger("OrquestadorGraph")
 
+
 class EstadoAgente(TypedDict):
     input_usuario: str
     ruta_planeada: list[str]
@@ -17,6 +18,7 @@ class EstadoAgente(TypedDict):
     respuesta_final: str
     request_id: str
     mock: bool
+
 
 # Node 1: Planificador
 async def nodo_planificador(state: EstadoAgente) -> dict:
@@ -27,20 +29,57 @@ async def nodo_planificador(state: EstadoAgente) -> dict:
     text_lower = input_usuario.lower()
 
     # Plan stations based on user input content
-    if any(k in text_lower for k in ["memoria", "lancedb", "recuerd", "historial", "conversación", "anterior", "guardado", "base de datos"]):
+    if any(
+        k in text_lower
+        for k in ["memoria", "lancedb", "recuerd", "historial", "conversación", "anterior", "guardado", "base de datos"]
+    ):
         ruta.append("memoria")
 
-    if any(k in text_lower for k in ["emoción", "emocion", "sentimiento", "estado de ánimo", "alegría", "tristeza", "enojado", "feliz", "actualizar_emocion", "lógico", "creativo"]):
+    if any(
+        k in text_lower
+        for k in [
+            "emoción",
+            "emocion",
+            "sentimiento",
+            "estado de ánimo",
+            "alegría",
+            "tristeza",
+            "enojado",
+            "feliz",
+            "actualizar_emocion",
+            "lógico",
+            "creativo",
+        ]
+    ):
         ruta.append("herramientas")
 
-    if any(k in text_lower for k in [
-        "buscar", "internet", "web", "google", "investigar",
-        "búsqueda", "busqueda", "qué es", "que es",
-        "último", "actual", "noticias", "cómo hacer", "como hacer",
-        "documentación", "documentacion", "tutorial",
-        "última versión", "ultima version",
-        "descargar", "precio", "precios",
-    ]):
+    if any(
+        k in text_lower
+        for k in [
+            "buscar",
+            "internet",
+            "web",
+            "google",
+            "investigar",
+            "búsqueda",
+            "busqueda",
+            "qué es",
+            "que es",
+            "último",
+            "actual",
+            "noticias",
+            "cómo hacer",
+            "como hacer",
+            "documentación",
+            "documentacion",
+            "tutorial",
+            "última versión",
+            "ultima version",
+            "descargar",
+            "precio",
+            "precios",
+        ]
+    ):
         ruta.append("web")
 
     # If no route was planned, default to memoria to keep context updated
@@ -51,11 +90,8 @@ async def nodo_planificador(state: EstadoAgente) -> dict:
     return {"ruta_planeada": ruta, "vagones_informacion": []}
 
 
-EMOTIONS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "config",
-    "emotions.json"
-)
+EMOTIONS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "emotions.json")
+
 
 def _get_current_emotion() -> str:
     try:
@@ -66,6 +102,7 @@ def _get_current_emotion() -> str:
     except Exception:
         pass
     return "neutral"
+
 
 # Node 2: Memoria (LanceDB Query via LLMRouter)
 async def nodo_memoria(state: EstadoAgente) -> dict:
@@ -78,11 +115,14 @@ async def nodo_memoria(state: EstadoAgente) -> dict:
 
     if mock:
         return {
-            "vagones_informacion": [{"estacion": "memoria", "resultado": "Mock database memory context for: " + input_usuario}],
-            "ruta_planeada": nueva_ruta
+            "vagones_informacion": [
+                {"estacion": "memoria", "resultado": "Mock database memory context for: " + input_usuario}
+            ],
+            "ruta_planeada": nueva_ruta,
         }
 
     from llm_router import _global_router
+
     if _global_router is not None:
         current_emotion = _get_current_emotion()
         logger.info(f"Querying memory semantic search for: '{input_usuario}' with emotion_filter='{current_emotion}'")
@@ -92,20 +132,23 @@ async def nodo_memoria(state: EstadoAgente) -> dict:
         formatted_results = []
         if results:
             for r in results:
-                formatted_results.append({
-                    "fichero": r.get('metadata', {}).get('filename', 'desconocido'),
-                    "texto": r.get('text', ''),
-                    "score": r.get('score', 1.0)
-                })
+                formatted_results.append(
+                    {
+                        "fichero": r.get("metadata", {}).get("filename", "desconocido"),
+                        "texto": r.get("text", ""),
+                        "score": r.get("score", 1.0),
+                    }
+                )
         return {
             "vagones_informacion": [{"estacion": "memoria", "resultado": formatted_results}],
-            "ruta_planeada": nueva_ruta
+            "ruta_planeada": nueva_ruta,
         }
 
     return {
         "vagones_informacion": [{"estacion": "memoria", "resultado": "No database search engine active."}],
-        "ruta_planeada": nueva_ruta
+        "ruta_planeada": nueva_ruta,
     }
+
 
 # Node 3: Herramientas (executes tools like emotional updates)
 async def nodo_herramientas(state: EstadoAgente) -> dict:
@@ -119,7 +162,7 @@ async def nodo_herramientas(state: EstadoAgente) -> dict:
     if mock:
         return {
             "vagones_informacion": [{"estacion": "herramientas", "resultado": "Mock tool execution completed."}],
-            "ruta_planeada": nueva_ruta
+            "ruta_planeada": nueva_ruta,
         }
 
     from llm_router import enrutar_peticion
@@ -127,11 +170,11 @@ async def nodo_herramientas(state: EstadoAgente) -> dict:
 
     extraction_prompt = (
         "Analiza el mensaje del usuario y extrae los parámetros para actualizar la emoción del sistema.\n"
-        f"Mensaje del usuario: \"{input_usuario}\"\n\n"
+        f'Mensaje del usuario: "{input_usuario}"\n\n'
         "Debes responder EXCLUSIVAMENTE con un JSON válido con esta estructura (sin bloques de código markdown ni texto adicional):\n"
         "{\n"
-        "  \"estado\": \"neutral\" | \"alegría\" | \"tristeza\" | \"enojo\" | \"intriga\" | \"lógico\" | \"creativo\",\n"
-        "  \"intensidad\": float (entre 0.0 y 1.0)\n"
+        '  "estado": "neutral" | "alegría" | "tristeza" | "enojo" | "intriga" | "lógico" | "creativo",\n'
+        '  "intensidad": float (entre 0.0 y 1.0)\n'
         "}"
     )
 
@@ -152,14 +195,15 @@ async def nodo_herramientas(state: EstadoAgente) -> dict:
         tool_result = actualizar_emocion.invoke({"estado": estado, "intensidad": intensidad})
         return {
             "vagones_informacion": [{"estacion": "herramientas", "resultado": tool_result}],
-            "ruta_planeada": nueva_ruta
+            "ruta_planeada": nueva_ruta,
         }
     except Exception as e:
         logger.error(f"Failed to execute tools in graph: {e}")
         return {
             "vagones_informacion": [{"estacion": "herramientas", "resultado": f"Tool error: {str(e)}"}],
-            "ruta_planeada": nueva_ruta
+            "ruta_planeada": nueva_ruta,
         }
+
 
 # Node 4: Web search (internet lookup via DuckDuckGo/Tavily)
 async def nodo_web(state: EstadoAgente) -> dict:
@@ -171,33 +215,43 @@ async def nodo_web(state: EstadoAgente) -> dict:
 
     if mock:
         return {
-            "vagones_informacion": [{
-                "estacion": "web",
-                "resultado": {
-                    "status": "success",
-                    "source": "mock",
-                    "results": [{"title": "Resultado simulado", "url": "", "snippet": f"Simulated web search for: {input_usuario}"}]
+            "vagones_informacion": [
+                {
+                    "estacion": "web",
+                    "resultado": {
+                        "status": "success",
+                        "source": "mock",
+                        "results": [
+                            {
+                                "title": "Resultado simulado",
+                                "url": "",
+                                "snippet": f"Simulated web search for: {input_usuario}",
+                            }
+                        ],
+                    },
                 }
-            }],
-            "ruta_planeada": nueva_ruta
+            ],
+            "ruta_planeada": nueva_ruta,
         }
 
     try:
         from skills.websearch_tool import buscar_en_web_func
+
         results_json = await buscar_en_web_func(query=input_usuario, max_results=5)
         import json
+
         results = json.loads(results_json)
         logger.info(f"Web search returned {len(results.get('results', []))} results")
-        return {
-            "vagones_informacion": [{"estacion": "web", "resultado": results}],
-            "ruta_planeada": nueva_ruta
-        }
+        return {"vagones_informacion": [{"estacion": "web", "resultado": results}], "ruta_planeada": nueva_ruta}
     except Exception as e:
         logger.error(f"Web search failed: {e}")
         return {
-            "vagones_informacion": [{"estacion": "web", "resultado": {"status": "error", "error": str(e), "results": []}}],
-            "ruta_planeada": nueva_ruta
+            "vagones_informacion": [
+                {"estacion": "web", "resultado": {"status": "error", "error": str(e), "results": []}}
+            ],
+            "ruta_planeada": nueva_ruta,
         }
+
 
 # Node 5: Respuesta (Synthesizes final answer)
 async def nodo_respuesta(state: EstadoAgente) -> dict:
@@ -226,7 +280,9 @@ async def nodo_respuesta(state: EstadoAgente) -> dict:
         try:
             with open(emotions_path, encoding="utf-8") as f:
                 e_data = json.load(f)
-            emotions_str = f"{e_data.get('estado', 'neutral').capitalize()} (Intensidad: {e_data.get('intensidad', 1.0)})"
+            emotions_str = (
+                f"{e_data.get('estado', 'neutral').capitalize()} (Intensidad: {e_data.get('intensidad', 1.0)})"
+            )
         except Exception:
             pass
 
@@ -247,7 +303,7 @@ async def nodo_respuesta(state: EstadoAgente) -> dict:
         f"{personality_prompt}\n\n"
         f"Estado Emocional Actual: {emotions_str}\n"
         f"Datos e Información recolectados por los Lóbulos de Visión OS:\n{context_str}\n\n"
-        f"Pregunta del Arquitecto: \"{input_usuario}\"\n\n"
+        f'Pregunta del Arquitecto: "{input_usuario}"\n\n'
         "Genera tu respuesta final de ingeniería colaborativa en base a los datos recolectados. Responde directamente en español."
     )
 
@@ -256,6 +312,7 @@ async def nodo_respuesta(state: EstadoAgente) -> dict:
         return {"respuesta_final": final_answer}
     except Exception as e:
         return {"respuesta_final": f"Error al sintetizar respuesta: {str(e)}"}
+
 
 # Conditional routing edge
 def enrutador_estaciones(state: EstadoAgente):
@@ -274,6 +331,7 @@ def enrutador_estaciones(state: EstadoAgente):
         return "nodo_herramientas"
     else:
         return "nodo_respuesta"
+
 
 # Build the StateGraph
 workflow = StateGraph(EstadoAgente)
@@ -294,8 +352,8 @@ workflow.add_conditional_edges(
         "nodo_memoria": "nodo_memoria",
         "nodo_web": "nodo_web",
         "nodo_herramientas": "nodo_herramientas",
-        "nodo_respuesta": "nodo_respuesta"
-    }
+        "nodo_respuesta": "nodo_respuesta",
+    },
 )
 
 workflow.add_conditional_edges(
@@ -305,8 +363,8 @@ workflow.add_conditional_edges(
         "nodo_memoria": "nodo_memoria",
         "nodo_web": "nodo_web",
         "nodo_herramientas": "nodo_herramientas",
-        "nodo_respuesta": "nodo_respuesta"
-    }
+        "nodo_respuesta": "nodo_respuesta",
+    },
 )
 
 workflow.add_conditional_edges(
@@ -316,8 +374,8 @@ workflow.add_conditional_edges(
         "nodo_memoria": "nodo_memoria",
         "nodo_web": "nodo_web",
         "nodo_herramientas": "nodo_herramientas",
-        "nodo_respuesta": "nodo_respuesta"
-    }
+        "nodo_respuesta": "nodo_respuesta",
+    },
 )
 
 workflow.add_conditional_edges(
@@ -327,13 +385,14 @@ workflow.add_conditional_edges(
         "nodo_memoria": "nodo_memoria",
         "nodo_web": "nodo_web",
         "nodo_herramientas": "nodo_herramientas",
-        "nodo_respuesta": "nodo_respuesta"
-    }
+        "nodo_respuesta": "nodo_respuesta",
+    },
 )
 
 workflow.add_edge("nodo_respuesta", END)
 
 orquestador_graph = workflow.compile()
+
 
 async def ejecutar_orquestador_graph(input_usuario: str, request_id: str, mock: bool = False) -> str:
     """
@@ -345,7 +404,7 @@ async def ejecutar_orquestador_graph(input_usuario: str, request_id: str, mock: 
         "vagones_informacion": [],
         "respuesta_final": "",
         "request_id": request_id,
-        "mock": mock
+        "mock": mock,
     }
     try:
         final_state = await orquestador_graph.ainvoke(initial_state)

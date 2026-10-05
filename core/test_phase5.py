@@ -8,9 +8,10 @@ import time
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] TestPhase5: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("TestPhase5")
+
 
 async def test_integration():
     host = "127.0.0.1"
@@ -24,10 +25,12 @@ async def test_integration():
         sys.exit(1)
 
     # Subscribe to audio transcriptions and execution results
-    subscribe_msg = json.dumps({
-        "action": "subscribe",
-        "topics": ["canal.sensorial.audio.transcripcion", "canal.ejecucion.resultado"]
-    }) + "\n"
+    subscribe_msg = (
+        json.dumps(
+            {"action": "subscribe", "topics": ["canal.sensorial.audio.transcripcion", "canal.ejecucion.resultado"]}
+        )
+        + "\n"
+    )
     writer.write(subscribe_msg.encode("utf-8"))
     await writer.drain()
     logger.info("Subscribed to Phase 5 topics.")
@@ -44,8 +47,8 @@ async def test_integration():
         "data": {
             "request_id": request_id,
             "herramienta": "ejecutar_script",
-            "parametros": ["python -c \"print('HEMISFERIO_IZQUIERDO_OK')\""]
-        }
+            "parametros": ["python -c \"print('HEMISFERIO_IZQUIERDO_OK')\""],
+        },
     }
     writer.write((json.dumps(action_payload) + "\n").encode("utf-8"))
     await writer.drain()
@@ -59,8 +62,8 @@ async def test_integration():
         "data": {
             "request_id": ui_request_id,
             "herramienta": "control_ui",
-            "parametros": ["win", "escribir: notepad", "enter"]
-        }
+            "parametros": ["win", "escribir: notepad", "enter"],
+        },
     }
     writer.write((json.dumps(ui_payload) + "\n").encode("utf-8"))
     await writer.drain()
@@ -71,7 +74,7 @@ async def test_integration():
 
     # Listen loop
     start_time = time.time()
-    while time.time() - start_time < 30: # 30 seconds timeout
+    while time.time() - start_time < 30:  # 30 seconds timeout
         try:
             line = await asyncio.wait_for(reader.readline(), timeout=1.0)
             if not line:
@@ -104,7 +107,9 @@ async def test_integration():
                     ui_received = True
 
             if audio_received and action_received and ui_received:
-                logger.info("\n" + "="*46 + "\nALL PHASE 5 INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "="*46 + "\n")
+                logger.info(
+                    "\n" + "=" * 46 + "\nALL PHASE 5 INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "=" * 46 + "\n"
+                )
                 sys.exit(0)
 
         except asyncio.TimeoutError:
@@ -115,6 +120,7 @@ async def test_integration():
 
     logger.error(f"Test timed out. Progress: audio={audio_received}, script={action_received}, ui={ui_received}")
     sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(test_integration())

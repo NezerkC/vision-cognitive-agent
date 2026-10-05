@@ -11,18 +11,20 @@ import aiohttp
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] TestPhase6: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("TestPhase6")
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EMOTIONS_PATH = os.path.join(PROJECT_ROOT, "config", "emotions.json")
 
+
 async def update_emotion(state: str):
     payload = {"estado": state, "intensidad": 0.9}
     with open(EMOTIONS_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f)
     logger.info(f"Updated emotions.json to state: '{state}'")
+
 
 async def test_integration():
     host = "127.0.0.1"
@@ -37,14 +39,15 @@ async def test_integration():
         sys.exit(1)
 
     # Subscribe to test topics
-    subscribe_msg = json.dumps({
-        "action": "subscribe",
-        "topics": [
-            "canal.cognitivo.respuesta",
-            "canal.sensorial.periferico",
-            "canal.imaginacion.respuesta"
-        ]
-    }) + "\n"
+    subscribe_msg = (
+        json.dumps(
+            {
+                "action": "subscribe",
+                "topics": ["canal.cognitivo.respuesta", "canal.sensorial.periferico", "canal.imaginacion.respuesta"],
+            }
+        )
+        + "\n"
+    )
     writer.write(subscribe_msg.encode("utf-8"))
     await writer.drain()
     logger.info("Subscribed to Phase 6 topics.")
@@ -62,8 +65,8 @@ async def test_integration():
             "request_id": req_logic_id,
             "prompt": "Cuánto es 2+2?",
             "esfuerzo_requerido": "esfuerzo_bajo",
-            "mock": True
-        }
+            "mock": True,
+        },
     }
     writer.write((json.dumps(peticion_payload) + "\n").encode("utf-8"))
     await writer.drain()
@@ -74,10 +77,7 @@ async def test_integration():
     imaginacion_payload = {
         "action": "publish",
         "topic": "canal.imaginacion.peticion",
-        "data": {
-            "request_id": req_image_id,
-            "prompt": "Un cerebro holográfico brillante"
-        }
+        "data": {"request_id": req_image_id, "prompt": "Un cerebro holográfico brillante"},
     }
     writer.write((json.dumps(imaginacion_payload) + "\n").encode("utf-8"))
     await writer.drain()
@@ -101,7 +101,7 @@ async def test_integration():
     periferico_received = False
 
     start_time = time.time()
-    while time.time() - start_time < 20: # 20s timeout
+    while time.time() - start_time < 20:  # 20s timeout
         try:
             line = await asyncio.wait_for(reader.readline(), timeout=1.0)
             if not line:
@@ -134,7 +134,9 @@ async def test_integration():
                     periferico_received = True
 
             if logic_temp_correct and image_received and periferico_received:
-                logger.info("\n" + "="*46 + "\nALL PHASE 6 INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "="*46 + "\n")
+                logger.info(
+                    "\n" + "=" * 46 + "\nALL PHASE 6 INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "=" * 46 + "\n"
+                )
                 # Reset emotions back to neutral before exiting
                 await update_emotion("neutral")
                 sys.exit(0)
@@ -147,8 +149,11 @@ async def test_integration():
 
     # Reset emotions
     await update_emotion("neutral")
-    logger.error(f"Test timed out. Progress: logic_temp={logic_temp_correct}, image={image_received}, webhook={periferico_received}")
+    logger.error(
+        f"Test timed out. Progress: logic_temp={logic_temp_correct}, image={image_received}, webhook={periferico_received}"
+    )
     sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(test_integration())

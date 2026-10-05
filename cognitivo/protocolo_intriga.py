@@ -11,7 +11,7 @@ import aiohttp
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] ProtocoloIntriga: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("ProtocoloIntriga")
 
@@ -46,12 +46,7 @@ class ProtocoloIntriga:
         try:
             async with aiohttp.ClientSession() as session:
                 url = "https://api.tavily.com/search"
-                payload = {
-                    "api_key": api_key,
-                    "query": query,
-                    "search_depth": "basic",
-                    "include_answer": True
-                }
+                payload = {"api_key": api_key, "query": query, "search_depth": "basic", "include_answer": True}
                 async with session.post(url, json=payload, timeout=8.0) as resp:
                     if resp.status == 200:
                         res_data = await resp.json()
@@ -127,8 +122,8 @@ class ProtocoloIntriga:
                     "para abarcar las soluciones más probables."
                 ),
                 "esfuerzo_requerido": "esfuerzo_medio",
-                "mock": self.is_mock
-            }
+                "mock": self.is_mock,
+            },
         }
         try:
             writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
@@ -144,8 +139,8 @@ class ProtocoloIntriga:
             "data": {
                 "mensaje": f"[PROTOCOLO INTRIGA] Error detectado: '{error_text}'. Generando ticket e iniciando investigación...",
                 "error_original": error_text,
-                "timestamp": current_time
-            }
+                "timestamp": current_time,
+            },
         }
         try:
             writer.write((json.dumps(payload) + "\n").encode("utf-8"))
@@ -196,17 +191,15 @@ class ProtocoloIntriga:
                         "coordenada_z": 0.0,
                         "coordenada_w": 100.0,
                         "escala_magnitud": "KB",
-                        "metadata": {
-                            "tipo": "auto_capacitacion",
-                            "cli_name": cli_name,
-                            "timestamp": time.time()
-                        }
-                    }
+                        "metadata": {"tipo": "auto_capacitacion", "cli_name": cli_name, "timestamp": time.time()},
+                    },
                 }
                 writer.write((json.dumps(save_payload) + "\n").encode("utf-8"))
                 await writer.drain()
                 logger.info(f"Learned tool index saved to LanceDB for {cli_name}.")
-                print(f"\n\033[92m[AUTO-CAPACITACIÓN COMPLETADA] Visión aprendió a controlar la CLI '{cli_name}' y registró su tool.\033[0m\n")
+                print(
+                    f"\n\033[92m[AUTO-CAPACITACIÓN COMPLETADA] Visión aprendió a controlar la CLI '{cli_name}' y registró su tool.\033[0m\n"
+                )
             except Exception as e:
                 logger.error(f"Failed to write generated skill file: {e}")
             return
@@ -235,9 +228,9 @@ class ProtocoloIntriga:
                 "metadata": {
                     "tipo": "solucion_error",
                     "error_original": self.active_error,
-                    "query_utilizada": response_text
-                }
-            }
+                    "query_utilizada": response_text,
+                },
+            },
         }
         try:
             writer.write((json.dumps(save_payload) + "\n").encode("utf-8"))
@@ -283,8 +276,8 @@ class ProtocoloIntriga:
                 "request_id": req_id,
                 "prompt": prompt_write_tool,
                 "esfuerzo_requerido": "esfuerzo_medio",
-                "mock": self.is_mock
-            }
+                "mock": self.is_mock,
+            },
         }
         try:
             writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
@@ -301,16 +294,21 @@ class ProtocoloIntriga:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to required topics
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": [
-                        "canal.sistema.contexto_actual",
-                        "canal.sensorial.audio.transcripcion",
-                        "canal.cognitivo.respuesta",
-                        "canal.intriga",
-                        "system"
-                    ]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps(
+                        {
+                            "action": "subscribe",
+                            "topics": [
+                                "canal.sistema.contexto_actual",
+                                "canal.sensorial.audio.transcripcion",
+                                "canal.cognitivo.respuesta",
+                                "canal.intriga",
+                                "system",
+                            ],
+                        }
+                    )
+                    + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 

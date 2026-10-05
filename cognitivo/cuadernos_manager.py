@@ -47,13 +47,15 @@ class CuadernosManager:
         self._ensure_lancedb_table()
 
     def _ensure_lancedb_table(self):
-        schema = pa.schema([
-            ("vector", pa.list_(pa.float32(), 1024)),
-            ("text", pa.string()),
-            ("notebook_id", pa.string()),
-            ("source_name", pa.string()),
-            ("chunk_index", pa.int32()),
-        ])
+        schema = pa.schema(
+            [
+                ("vector", pa.list_(pa.float32(), 1024)),
+                ("text", pa.string()),
+                ("notebook_id", pa.string()),
+                ("source_name", pa.string()),
+                ("chunk_index", pa.int32()),
+            ]
+        )
         if "cuadernos_chunks" not in self.db.table_names():
             self.table = self.db.create_table("cuadernos_chunks", schema=schema)
             logger.info("LanceDB table 'cuadernos_chunks' created successfully.")
@@ -71,6 +73,7 @@ class CuadernosManager:
                 if attempt == 2:
                     logger.error(f"Error loading notebooks metadata: {e}")
                 import time
+
                 time.sleep(0.05)
         return {}
 
@@ -83,21 +86,22 @@ class CuadernosManager:
         except Exception as e:
             logger.error(f"Error saving notebooks metadata: {e}")
 
-
     def list_cuadernos(self) -> list[dict]:
         data = self._load_metadata()
         result = []
         for n_id, info in data.items():
-            result.append({
-                "id": n_id,
-                "title": info.get("title", "Sin título"),
-                "description": info.get("description", ""),
-                "created_at": info.get("created_at", ""),
-                "sources_count": len(info.get("sources", [])),
-                "notes_count": len(info.get("notes", [])),
-                "sources": info.get("sources", []),
-                "notes": info.get("notes", [])
-            })
+            result.append(
+                {
+                    "id": n_id,
+                    "title": info.get("title", "Sin título"),
+                    "description": info.get("description", ""),
+                    "created_at": info.get("created_at", ""),
+                    "sources_count": len(info.get("sources", [])),
+                    "notes_count": len(info.get("notes", [])),
+                    "sources": info.get("sources", []),
+                    "notes": info.get("notes", []),
+                }
+            )
         return sorted(result, key=lambda x: x["created_at"], reverse=True)
 
     def create_cuaderno(self, title: str, description: str = "") -> dict:
@@ -109,7 +113,7 @@ class CuadernosManager:
             "description": description,
             "created_at": datetime.now().isoformat(),
             "sources": [],
-            "notes": []
+            "notes": [],
         }
         metadata[n_id] = new_notebook
         self._save_metadata(metadata)
@@ -120,7 +124,7 @@ class CuadernosManager:
         metadata = self._load_metadata()
         if notebook_id not in metadata:
             return False
-        
+
         del metadata[notebook_id]
         self._save_metadata(metadata)
 
@@ -134,12 +138,15 @@ class CuadernosManager:
         n_sources_dir = os.path.join(CUADERNOS_DIR, "sources", notebook_id)
         if os.path.exists(n_sources_dir):
             import shutil
+
             shutil.rmtree(n_sources_dir, ignore_errors=True)
 
         logger.info(f"Cuaderno eliminado: {notebook_id}")
         return True
 
-    async def add_fuente(self, notebook_id: str, filename: str, file_content: bytes, description: str | None = None) -> dict:
+    async def add_fuente(
+        self, notebook_id: str, filename: str, file_content: bytes, description: str | None = None
+    ) -> dict:
         metadata = self._load_metadata()
         if notebook_id not in metadata:
             raise ValueError(f"Cuaderno {notebook_id} no existe.")
@@ -158,7 +165,7 @@ class CuadernosManager:
             "description": description or "",
             "added_at": datetime.now().isoformat(),
             "status": "processing",
-            "chunks": 0
+            "chunks": 0,
         }
         metadata[notebook_id]["sources"].append(source_entry)
         self._save_metadata(metadata)
@@ -200,13 +207,15 @@ class CuadernosManager:
             rows = []
             for idx, chunk_text in enumerate(chunks):
                 vec = self.embedder.embed_query(chunk_text)
-                rows.append({
-                    "vector": vec,
-                    "text": chunk_text,
-                    "notebook_id": notebook_id,
-                    "source_name": filename,
-                    "chunk_index": idx
-                })
+                rows.append(
+                    {
+                        "vector": vec,
+                        "text": chunk_text,
+                        "notebook_id": notebook_id,
+                        "source_name": filename,
+                        "chunk_index": idx,
+                    }
+                )
 
             if rows:
                 await asyncio.to_thread(self.table.add, rows)
@@ -221,7 +230,9 @@ class CuadernosManager:
                         break
                 self._save_metadata(metadata)
 
-            logger.info(f"Fuente '{filename}' procesada exitosamente ({len(rows)} chunks) para el cuaderno {notebook_id}.")
+            logger.info(
+                f"Fuente '{filename}' procesada exitosamente ({len(rows)} chunks) para el cuaderno {notebook_id}."
+            )
 
         except Exception as e:
             logger.error(f"Error procesando fuente {filename} para cuaderno {notebook_id}: {e}")
@@ -248,13 +259,10 @@ class CuadernosManager:
     async def _run_auto_research(self, notebook_id: str, tema: str, provider_api_key: str | None = None):
         try:
             from cognitivo.skills.websearch_tool import WebSearchEngine
+
             search_engine = WebSearchEngine()
 
-            queries = [
-                tema,
-                f"{tema} conceptos clave e investigación",
-                f"{tema} resumen y datos principales"
-            ]
+            queries = [tema, f"{tema} conceptos clave e investigación", f"{tema} resumen y datos principales"]
 
             logger.info(f"Iniciando investigación autónoma sobre '{tema}' para cuaderno {notebook_id}...")
 
@@ -280,7 +288,7 @@ class CuadernosManager:
                 notebook_id,
                 safe_filename,
                 combined_content.encode("utf-8"),
-                description=f"Hallazgos de investigación sobre {tema}"
+                description=f"Hallazgos de investigación sobre {tema}",
             )
             await asyncio.sleep(0.2)
 
@@ -300,19 +308,15 @@ class CuadernosManager:
             pass
         query_vec = self.embedder.embed_query(query)
         try:
-            results = (
-                self.table.search(query_vec)
-                .where(f"notebook_id = '{notebook_id}'")
-                .limit(top_k)
-                .to_list()
-            )
+            results = self.table.search(query_vec).where(f"notebook_id = '{notebook_id}'").limit(top_k).to_list()
             return results
         except Exception as e:
             logger.error(f"Error realizando búsqueda RAG en cuaderno {notebook_id}: {e}")
             return []
 
-
-    async def generar_sintesis(self, notebook_id: str, tipo_sintesis: str = "resumen", provider_api_key: str | None = None) -> dict:
+    async def generar_sintesis(
+        self, notebook_id: str, tipo_sintesis: str = "resumen", provider_api_key: str | None = None
+    ) -> dict:
         metadata = self._load_metadata()
         if notebook_id not in metadata:
             raise ValueError(f"Cuaderno {notebook_id} no existe.")
@@ -327,7 +331,7 @@ class CuadernosManager:
             "resumen": "Genera un Resumen Ejecutivo claro y estructurado con los puntos clave del cuaderno.",
             "guia_estudio": "Genera una Guía de Estudio detallada con glosario de términos clave, conceptos centrales y ejercicios de autoevaluación.",
             "faq": "Genera un listado de Preguntas Frecuentes (FAQ) con sus respuestas fundamentadas exactamente en las fuentes.",
-            "podcast_script": "Genera un Guion de Podcast informal y dinámico entre dos locutores (Alex y Sam) debatiendo el contenido de las fuentes."
+            "podcast_script": "Genera un Guion de Podcast informal y dinámico entre dos locutores (Alex y Sam) debatiendo el contenido de las fuentes.",
         }
 
         user_prompt = prompts.get(tipo_sintesis, prompts["resumen"])
@@ -339,10 +343,8 @@ class CuadernosManager:
         )
 
         import litellm
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
+
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
 
         api_key = provider_api_key or os.environ.get("OPENROUTER_API_KEY")
         model = "openrouter/google/gemini-1.5-pro" if api_key else "gpt-3.5-turbo"
@@ -351,7 +353,7 @@ class CuadernosManager:
             kwargs = {"model": model, "messages": messages, "temperature": 0.3}
             if api_key:
                 kwargs["api_key"] = api_key
-            
+
             response = await asyncio.to_thread(litellm.completion, **kwargs)
             generated_text = response.choices[0].message.content
         except Exception as e:
@@ -363,7 +365,7 @@ class CuadernosManager:
             "title": f"Síntesis: {tipo_sintesis.capitalize()}",
             "type": tipo_sintesis,
             "content": generated_text,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
         }
 
         metadata[notebook_id]["notes"].append(note_entry)
@@ -378,7 +380,7 @@ class CuadernosManager:
         search_web: bool = False,
         max_web_results: int = 5,
         response_style: str = "conciso",
-        provider_api_key: str | None = None
+        provider_api_key: str | None = None,
     ) -> AsyncGenerator[str, None]:
         clean_query = query.replace("@web", "").strip() if query.strip().startswith("@web") else query.strip()
 
@@ -387,6 +389,7 @@ class CuadernosManager:
             yield f"[🌐 Buscando en la web en modo {mode_label} e indexando fuentes en el cuaderno...]\n\n"
             try:
                 from cognitivo.skills.websearch_tool import WebSearchEngine
+
                 search_engine = WebSearchEngine()
                 resp = await search_engine.buscar(clean_query, max_results=max_web_results)
                 gathered_texts = []
@@ -394,8 +397,8 @@ class CuadernosManager:
                     for i, item in enumerate(resp.results):
                         snippet = clean_web_text(item.snippet)
                         if snippet:
-                            gathered_texts.append(f"### Fuente [{i+1}]: {item.title}\nURL: {item.url}\n\n{snippet}")
-                
+                            gathered_texts.append(f"### Fuente [{i + 1}]: {item.title}\nURL: {item.url}\n\n{snippet}")
+
                 if gathered_texts:
                     combined_content = "\n\n---\n\n".join(gathered_texts)
                     safe_filename = f"Investigacion_Web_{re.sub(r'[^a-zA-Z0-9_]', '_', clean_query)[:25]}.txt"
@@ -404,7 +407,7 @@ class CuadernosManager:
                     file_path = os.path.join(n_sources_dir, safe_filename)
                     with open(file_path, "wb") as f:
                         f.write(combined_content.encode("utf-8"))
-                    
+
                     source_id = str(uuid.uuid4())[:8]
                     source_entry = {
                         "id": source_id,
@@ -412,18 +415,20 @@ class CuadernosManager:
                         "description": f"Búsqueda web ({mode_label}) para query: {clean_query[:30]}",
                         "added_at": datetime.now().isoformat(),
                         "status": "ready",
-                        "chunks": 0
+                        "chunks": 0,
                     }
                     metadata = self._load_metadata()
                     if notebook_id in metadata:
                         metadata[notebook_id]["sources"].append(source_entry)
-                        
+
                         # Si es búsqueda profunda o mayor a 10 fuentes, generar una nota con el informe detallado de citas:
                         if max_web_results > 10 and resp.results:
-                            citations_formatted = "\n".join([
-                                f"{idx+1}. **[{item.title}]({item.url})**\n   - *Extracto*: {clean_web_text(item.snippet)[:200]}..."
-                                for idx, item in enumerate(resp.results)
-                            ])
+                            citations_formatted = "\n".join(
+                                [
+                                    f"{idx + 1}. **[{item.title}]({item.url})**\n   - *Extracto*: {clean_web_text(item.snippet)[:200]}..."
+                                    for idx, item in enumerate(resp.results)
+                                ]
+                            )
                             report_content = (
                                 f"# 📋 Informe de Investigación Profunda\n\n"
                                 f"**Tema**: {clean_query}\n"
@@ -440,12 +445,12 @@ class CuadernosManager:
                                 "title": f"Informe Citas: {clean_query[:30]}",
                                 "type": "informe_profundo",
                                 "content": report_content,
-                                "created_at": datetime.now().isoformat()
+                                "created_at": datetime.now().isoformat(),
                             }
                             metadata[notebook_id]["notes"].append(report_note)
 
                         self._save_metadata(metadata)
-                    
+
                     await self._process_and_index_source(notebook_id, source_id, safe_filename, file_path)
             except Exception as err:
                 logger.error(f"Error realizando búsqueda web en chat cuaderno: {err}")
@@ -483,6 +488,7 @@ class CuadernosManager:
         messages.append({"role": "user", "content": clean_query})
 
         import litellm
+
         api_key = provider_api_key or os.environ.get("OPENROUTER_API_KEY")
         model = "openrouter/google/gemini-1.5-pro" if api_key else "gpt-3.5-turbo"
 
@@ -500,4 +506,3 @@ class CuadernosManager:
         except Exception as e:
             logger.error(f"Error en streaming de chat cuaderno: {e}")
             yield f"Basado en las fuentes recuperadas:\n\n{chunks[0]['text']}\n\n[Fuente: {chunks[0]['source_name']}]"
-

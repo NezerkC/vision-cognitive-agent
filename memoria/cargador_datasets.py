@@ -22,7 +22,7 @@ import sys
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] Cargador: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("CargadorDatasets")
 
@@ -35,13 +35,14 @@ sys.path.insert(0, PROJECT_ROOT)
 # ─────────────────────────────────────────────────────────────────
 _guardar_manager = None
 
+
 async def guardar_recuerdo(
     texto: str,
     metadata: dict | None = None,
     coordenada_x: float = 0.0,
     coordenada_y: float = 0.0,
     temperatura_z: float = 100.0,
-    escala_magnitud: str = "KB"
+    escala_magnitud: str = "KB",
 ) -> bool:
     """
     Guarda un recuerdo directamente en LanceDB (sin pasar por el broker).
@@ -60,27 +61,31 @@ async def guardar_recuerdo(
 
     if _guardar_manager is None:
         from memoria.lancedb_manager import LanceDBManager
+
         _guardar_manager = LanceDBManager()
         _guardar_manager.init_db(mock_embedder=False)
 
     try:
         rows = []
         from memoria.lancedb_manager import RecursiveCharacterTextSplitter
+
         splitter = RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=50)
         chunks = splitter.split_text(texto)
 
         loop = asyncio.get_running_loop()
         for chunk in chunks:
             vector = await loop.run_in_executor(None, _guardar_manager.embedder.embed_query, chunk)
-            rows.append({
-                "vector": vector,
-                "text": chunk,
-                "coordenada_x": coordenada_x,
-                "coordenada_y": coordenada_y,
-                "temperatura_z": temperatura_z,
-                "escala_magnitud": escala_magnitud,
-                "metadata": json.dumps(metadata or {})
-            })
+            rows.append(
+                {
+                    "vector": vector,
+                    "text": chunk,
+                    "coordenada_x": coordenada_x,
+                    "coordenada_y": coordenada_y,
+                    "temperatura_z": temperatura_z,
+                    "escala_magnitud": escala_magnitud,
+                    "metadata": json.dumps(metadata or {}),
+                }
+            )
 
         _guardar_manager.table.add(rows)
         logger.info(f"✅ Guardados {len(rows)} chunk(s) en memoria_activa.")
@@ -100,7 +105,7 @@ async def ingerir_dataset_huggingface(
     edificio: str = "torre_programacion",
     coordenada_x: float = 10.0,
     coordenada_y: float = 5.0,
-    temperatura_z: float = 20.0  # Frío (HDD)
+    temperatura_z: float = 20.0,  # Frío (HDD)
 ):
     """
     Carga ejemplos desde un dataset de HuggingFace y los guarda en LanceDB.
@@ -108,18 +113,12 @@ async def ingerir_dataset_huggingface(
     try:
         from langchain_community.document_loaders import HuggingFaceDatasetLoader
     except ImportError:
-        logger.error(
-            "❌ Falta 'langchain-community'. Instalalo con:\n"
-            "   pip install langchain-community datasets"
-        )
+        logger.error("❌ Falta 'langchain-community'. Instalalo con:\n   pip install langchain-community datasets")
         return
 
     logger.info(f"📚 Descargando dataset '{dataset_name}' desde HuggingFace...")
     try:
-        loader_hf = HuggingFaceDatasetLoader(
-            dataset_name,
-            page_content_column="instruction"
-        )
+        loader_hf = HuggingFaceDatasetLoader(dataset_name, page_content_column="instruction")
         docs = loader_hf.load()[:max_ejemplos]
     except Exception as e:
         logger.error(f"❌ Error cargando dataset: {e}")
@@ -128,22 +127,14 @@ async def ingerir_dataset_huggingface(
     logger.info(f"📦 {len(docs)} ejemplos obtenidos. Guardando en LanceDB...")
 
     for i, doc in enumerate(docs):
-        texto = (
-            f"Instrucción: {doc.page_content}\n"
-            f"Código: {doc.metadata.get('output', '')}"
-        )
-        metadata = {
-            "origen": "dataset_hf",
-            "dataset": dataset_name,
-            "edificio": edificio,
-            "indice": i
-        }
+        texto = f"Instrucción: {doc.page_content}\nCódigo: {doc.metadata.get('output', '')}"
+        metadata = {"origen": "dataset_hf", "dataset": dataset_name, "edificio": edificio, "indice": i}
         await guardar_recuerdo(
             texto=texto,
             metadata=metadata,
             coordenada_x=coordenada_x,
             coordenada_y=coordenada_y,
-            temperatura_z=temperatura_z
+            temperatura_z=temperatura_z,
         )
         if (i + 1) % 10 == 0:
             logger.info(f"⏳ Progreso: {i + 1}/{len(docs)}")
@@ -159,7 +150,7 @@ async def ingerir_desde_archivo(
     campo_texto: str = "text",
     campo_salida: str = "output",
     max_ejemplos: int = 200,
-    edificio: str = "torre_programacion"
+    edificio: str = "torre_programacion",
 ):
     """
     Carga ejemplos desde un archivo JSONL local.
@@ -189,23 +180,9 @@ async def ingerir_desde_archivo(
     logger.info(f"📦 {len(ejemplos)} ejemplos cargados. Guardando...")
 
     for i, item in enumerate(ejemplos):
-        texto = (
-            f"Instrucción: {item.get(campo_texto, '')}\n"
-            f"Código: {item.get(campo_salida, '')}"
-        )
-        metadata = {
-            "origen": "archivo_local",
-            "archivo": os.path.basename(ruta),
-            "edificio": edificio,
-            "indice": i
-        }
-        await guardar_recuerdo(
-            texto=texto,
-            metadata=metadata,
-            coordenada_x=10.0,
-            coordenada_y=5.0,
-            temperatura_z=20.0
-        )
+        texto = f"Instrucción: {item.get(campo_texto, '')}\nCódigo: {item.get(campo_salida, '')}"
+        metadata = {"origen": "archivo_local", "archivo": os.path.basename(ruta), "edificio": edificio, "indice": i}
+        await guardar_recuerdo(texto=texto, metadata=metadata, coordenada_x=10.0, coordenada_y=5.0, temperatura_z=20.0)
         if (i + 1) % 25 == 0:
             logger.info(f"⏳ Progreso: {i + 1}/{len(ejemplos)}")
 
@@ -216,6 +193,7 @@ async def ingerir_desde_archivo(
 # Main
 # ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+
     async def main():
         if "--desde-archivo" in sys.argv:
             idx = sys.argv.index("--desde-archivo")

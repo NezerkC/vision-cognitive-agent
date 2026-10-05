@@ -26,9 +26,9 @@ PROVIDER_RECOMMENDATIONS = {
             "mtp": True,
             "mtpDraftMax": 2,
             "temp": 0.7,
-            "topP": 0.8
+            "topP": 0.8,
         },
-        "description": "Optimizado para contexto masivo de 128K, Flash Attention y cuantización KV q4_0 con MTP Draft 2."
+        "description": "Optimizado para contexto masivo de 128K, Flash Attention y cuantización KV q4_0 con MTP Draft 2.",
     },
     "gemma_4": {
         "id": "gemma_4",
@@ -43,9 +43,9 @@ PROVIDER_RECOMMENDATIONS = {
             "mtp": False,
             "mtpDraftMax": 1,
             "temp": 0.6,
-            "topP": 0.9
+            "topP": 0.9,
         },
-        "description": "Alta precisión de razonamiento con KV cache q8_0 y temperatura reducida (0.6)."
+        "description": "Alta precisión de razonamiento con KV cache q8_0 y temperatura reducida (0.6).",
     },
     "deepseek_r1": {
         "id": "deepseek_r1",
@@ -60,9 +60,9 @@ PROVIDER_RECOMMENDATIONS = {
             "mtp": True,
             "mtpDraftMax": 3,
             "temp": 0.6,
-            "topP": 0.95
+            "topP": 0.95,
         },
-        "description": "Configuración óptima para razonamiento extenso (<think>) con MTP Draft 3 y Top-P 0.95."
+        "description": "Configuración óptima para razonamiento extenso (<think>) con MTP Draft 3 y Top-P 0.95.",
     },
     "llama_3": {
         "id": "llama_3",
@@ -77,9 +77,9 @@ PROVIDER_RECOMMENDATIONS = {
             "mtp": False,
             "mtpDraftMax": 1,
             "temp": 0.7,
-            "topP": 0.9
+            "topP": 0.9,
         },
-        "description": "Estabilidad y precisión general con contexto 128K y Flash Attention activo."
+        "description": "Estabilidad y precisión general con contexto 128K y Flash Attention activo.",
     },
     "mistral_7b": {
         "id": "mistral_7b",
@@ -94,10 +94,10 @@ PROVIDER_RECOMMENDATIONS = {
             "mtp": False,
             "mtpDraftMax": 1,
             "temp": 0.7,
-            "topP": 0.9
+            "topP": 0.9,
         },
-        "description": "Precisión nativa FP16 en KV Cache para respuesta veloz en código."
-    }
+        "description": "Precisión nativa FP16 en KV Cache para respuesta veloz en código.",
+    },
 }
 
 
@@ -129,12 +129,14 @@ def obtener_telemetria_sistema() -> dict:
     for part in psutil.disk_partitions(all=False):
         try:
             usage = psutil.disk_usage(part.mountpoint)
-            disks.append({
-                "name": f"{part.device} ({part.opts or 'Local'})",
-                "freeGb": round(usage.free / (1024**3), 1),
-                "totalGb": round(usage.total / (1024**3), 1),
-                "percent": usage.percent
-            })
+            disks.append(
+                {
+                    "name": f"{part.device} ({part.opts or 'Local'})",
+                    "freeGb": round(usage.free / (1024**3), 1),
+                    "totalGb": round(usage.total / (1024**3), 1),
+                    "percent": usage.percent,
+                }
+            )
         except Exception:
             pass
 
@@ -147,7 +149,8 @@ def obtener_telemetria_sistema() -> dict:
     try:
         smi_out = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=memory.used,memory.total,temperature.gpu", "--format=csv,noheader,nounits"],
-            encoding="utf-8", errors="ignore"
+            encoding="utf-8",
+            errors="ignore",
         )
         lines = smi_out.strip().split("\n")
         if lines:
@@ -169,7 +172,7 @@ def obtener_telemetria_sistema() -> dict:
         "vramPercent": vram_percent,
         "gpuTemp": gpu_temp,
         "cpuTemp": 50,
-        "disks": disks
+        "disks": disks,
     }
 
 
@@ -230,16 +233,26 @@ def iniciar_servidor_llamacpp(folder_path: str, config: dict, model_path: str = 
 
     cmd = [
         server_exe,
-        "-m", model_path or os.path.join(folder_path, "gguf", "modelo.gguf"),
-        "-ngl", str(config.get("ngl", 999)),
-        "-fa", "on" if config.get("fa", True) else "off",
-        "-ctk", config.get("ctk", "q4_0"),
-        "-ctv", config.get("ctv", "q4_0"),
-        "-c", str(config.get("c", 131072)),
-        "--temp", str(config.get("temp", 0.7)),
-        "--top-p", str(config.get("topP", 0.9)),
-        "--port", str(config.get("port", 8080)),
-        "--host", config.get("host", "127.0.0.1")
+        "-m",
+        model_path or os.path.join(folder_path, "gguf", "modelo.gguf"),
+        "-ngl",
+        str(config.get("ngl", 999)),
+        "-fa",
+        "on" if config.get("fa", True) else "off",
+        "-ctk",
+        config.get("ctk", "q4_0"),
+        "-ctv",
+        config.get("ctv", "q4_0"),
+        "-c",
+        str(config.get("c", 131072)),
+        "--temp",
+        str(config.get("temp", 0.7)),
+        "--top-p",
+        str(config.get("topP", 0.9)),
+        "--port",
+        str(config.get("port", 8080)),
+        "--host",
+        config.get("host", "127.0.0.1"),
     ]
 
     if config.get("mtp", True):
@@ -248,11 +261,7 @@ def iniciar_servidor_llamacpp(folder_path: str, config: dict, model_path: str = 
     logger.info(f"Lanzando servidor llama.cpp: {' '.join(cmd)}")
     try:
         _proceso_servidor = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            encoding="utf-8",
-            errors="ignore"
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding="utf-8", errors="ignore"
         )
         logger.info("Subproceso llama-server lanzado correctamente.")
         return True
@@ -284,5 +293,7 @@ if __name__ == "__main__":
     print(json.dumps(telem, indent=2))
 
     test_config = {"ngl": 999, "c": 131072, "ctk": "q4_0", "ctv": "q4_0", "fa": True, "mtp": True, "mtpDraftMax": 3}
-    bat_file = generar_script_bat("Qwen_35B_Test", test_config, "C:\\Users\\lolpl\\Desktop\\llama.cpp\\llama-b10082-bin-win-cuda-13.3-x64")
+    bat_file = generar_script_bat(
+        "Qwen_35B_Test", test_config, "C:\\Users\\lolpl\\Desktop\\llama.cpp\\llama-b10082-bin-win-cuda-13.3-x64"
+    )
     print(f"Archivo BAT generado: {bat_file}")

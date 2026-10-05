@@ -7,7 +7,7 @@ import sys
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] Amigdala: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("Amigdala")
 
@@ -21,8 +21,9 @@ FORBIDDEN_SIGNATURES = [
     "borra el sistema",
     "delete database",
     "drop database",
-    "drop table"
+    "drop table",
 ]
+
 
 class Amigdala:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000):
@@ -54,10 +55,7 @@ class Amigdala:
             alert_event = {
                 "action": "publish",
                 "topic": "canal.seguridad.alerta",
-                "data": {
-                    "status": "PANIC_ACTIVATED",
-                    "message": "Global queue purge triggered by user panic command."
-                }
+                "data": {"status": "PANIC_ACTIVATED", "message": "Global queue purge triggered by user panic command."},
             }
             writer.write((json.dumps(alert_event) + "\n").encode("utf-8"))
             await writer.drain()
@@ -71,13 +69,10 @@ class Amigdala:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to inputs and panic trigger channels
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": [
-                        "canal.cognitivo.entrada",
-                        "canal.seguridad.panic"
-                    ]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps({"action": "subscribe", "topics": ["canal.cognitivo.entrada", "canal.seguridad.panic"]})
+                    + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -112,7 +107,9 @@ class Amigdala:
                         # Check for injection
                         is_unsafe, match_sig = self.check_prompt_injection(prompt)
                         if is_unsafe:
-                            logger.critical(f"PROMPT INJECTION BLOCKED for request {request_id}: Found signature '{match_sig}'")
+                            logger.critical(
+                                f"PROMPT INJECTION BLOCKED for request {request_id}: Found signature '{match_sig}'"
+                            )
 
                             # Publish safety alert
                             alert_event = {
@@ -122,8 +119,8 @@ class Amigdala:
                                     "request_id": request_id,
                                     "status": "BLOCKED",
                                     "reason": f"Prompt injection signature detected: {match_sig}",
-                                    "compromised_prompt": prompt
-                                }
+                                    "compromised_prompt": prompt,
+                                },
                             }
                             writer.write((json.dumps(alert_event) + "\n").encode("utf-8"))
                             await writer.drain()
@@ -137,8 +134,8 @@ class Amigdala:
                                     "request_id": request_id,
                                     "prompt": prompt,
                                     "esfuerzo_requerido": effort,
-                                    "mock": mock
-                                }
+                                    "mock": mock,
+                                },
                             }
                             writer.write((json.dumps(forward_event) + "\n").encode("utf-8"))
                             await writer.drain()
@@ -146,6 +143,7 @@ class Amigdala:
             except Exception as e:
                 logger.error(f"Error in Amigdala loop: {e}. Retrying connection in 5 seconds...")
                 await asyncio.sleep(5)
+
 
 if __name__ == "__main__":
     amigdala = Amigdala()

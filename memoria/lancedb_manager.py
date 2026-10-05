@@ -15,15 +15,12 @@ from transformers import AutoModel, AutoTokenizer
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] LobeTemporal: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("LanceDBManager")
 
-CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "config",
-    "memory_tiering.yaml"
-)
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "memory_tiering.yaml")
+
 
 class BGEM3Embedder:
     def __init__(self, model_name="BAAI/bge-m3", force_mock=False):
@@ -40,13 +37,16 @@ class BGEM3Embedder:
                 self.model.to(self.device)
                 logger.info(f"BGE-M3 loaded on device: {self.device}")
             except Exception as e:
-                logger.warning(f"Could not load BGE-M3 model locally: {e}. Falling back to deterministic mock embedding.")
+                logger.warning(
+                    f"Could not load BGE-M3 model locally: {e}. Falling back to deterministic mock embedding."
+                )
                 self.force_mock = True
 
     def embed_query(self, text: str) -> list[float]:
         if self.force_mock or not self.model:
             import hashlib
             import re
+
             words = re.findall(r"\w+", text.lower())
             vector = [0.0] * 1024
             if not words:
@@ -59,7 +59,6 @@ class BGEM3Embedder:
             if norm > 0:
                 vector = [x / norm for x in vector]
             return vector
-
 
         try:
             inputs = self.tokenizer(text, padding=True, truncation=True, max_length=8192, return_tensors="pt")
@@ -74,6 +73,7 @@ class BGEM3Embedder:
             logger.error(f"Error computing BGE-M3 embedding: {e}. Falling back to mock vector.")
             # Fallback to mock on runtime error
             import hashlib
+
             h = hashlib.sha256(text.encode("utf-8")).digest()
             return [float(((h[i % len(h)] + i) % 256) / 255.0 * 2.0 - 1.0) for i in range(1024)]
 
@@ -117,16 +117,18 @@ class LanceDBManager:
             self.embedder = BGEM3Embedder(force_mock=mock_embedder)
 
             # PyArrow schema for our 4D spatial index matrix (Euclidean + Cosine)
-            schema = pa.schema([
-                ("vector", pa.list_(pa.float32(), 1024)),  # BGE-M3 outputs 1024 dimensions
-                ("text", pa.string()),
-                ("coordenada_x", pa.float32()),
-                ("coordenada_y", pa.float32()),
-                ("coordenada_z", pa.float32()),
-                ("coordenada_w", pa.float32()),  # Metadata emotion/gravity dimension
-                ("escala_magnitud", pa.string()),
-                ("metadata", pa.string())
-            ])
+            schema = pa.schema(
+                [
+                    ("vector", pa.list_(pa.float32(), 1024)),  # BGE-M3 outputs 1024 dimensions
+                    ("text", pa.string()),
+                    ("coordenada_x", pa.float32()),
+                    ("coordenada_y", pa.float32()),
+                    ("coordenada_z", pa.float32()),
+                    ("coordenada_w", pa.float32()),  # Metadata emotion/gravity dimension
+                    ("escala_magnitud", pa.string()),
+                    ("metadata", pa.string()),
+                ]
+            )
 
             # Hot Tier Table (HNSW index)
             if "memoria_fractal" in self.db.table_names():
@@ -170,7 +172,9 @@ class LanceDBManager:
 
             if self.cold_table and self.cold_table.count_rows() >= 256:
                 try:
-                    self.cold_table.create_index(metric="cosine", num_partitions=16, num_sub_vectors=32, index_type="IVF_PQ")
+                    self.cold_table.create_index(
+                        metric="cosine", num_partitions=16, num_sub_vectors=32, index_type="IVF_PQ"
+                    )
                     logger.info("Created PQ index on Cold table.")
                 except Exception as e:
                     logger.debug(f"Cold table PQ index creation notice: {e}")
@@ -185,10 +189,7 @@ class LanceDBManager:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to memory commands and system commands
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": ["canal.memoria", "system"]
-                }) + "\n"
+                subscribe_msg = json.dumps({"action": "subscribe", "topics": ["canal.memoria", "system"]}) + "\n"
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -255,16 +256,18 @@ class LanceDBManager:
             loop = asyncio.get_running_loop()
             for chunk in chunks:
                 vector = await loop.run_in_executor(None, self.embedder.embed_query, chunk)
-                rows.append({
-                    "vector": vector,
-                    "text": chunk,
-                    "coordenada_x": coord_x,
-                    "coordenada_y": coord_y,
-                    "coordenada_z": coord_z,
-                    "coordenada_w": coord_w,
-                    "escala_magnitud": escala,
-                    "metadata": json.dumps(meta)
-                })
+                rows.append(
+                    {
+                        "vector": vector,
+                        "text": chunk,
+                        "coordenada_x": coord_x,
+                        "coordenada_y": coord_y,
+                        "coordenada_z": coord_z,
+                        "coordenada_w": coord_w,
+                        "escala_magnitud": escala,
+                        "metadata": json.dumps(meta),
+                    }
+                )
 
             # Save rows to designated LanceDB tier table
             target_table = self.table if tier == "hot" else (self.cold_table or self.table)
@@ -277,17 +280,14 @@ class LanceDBManager:
                 await self.publish_error(writer, f"Guardar failed: {str(e)}")
 
     async def buscar_hibrido_rrf_impl(
-        self,
-        query: str,
-        top_n: int = 5,
-        k_rrf: int = 60,
-        emotion_filter: str | None = None
+        self, query: str, top_n: int = 5, k_rrf: int = 60, emotion_filter: str | None = None
     ) -> list[dict]:
         """
         Executes Reciprocal Rank Fusion (RRF k=60) Hybrid Search combining dense vector similarity
         and Tantivy Full-Text Search (FTS). Calculates 4D spatial distance D² = X² + Y² + Z² + W².
         """
         import math
+
         if not query or not query.strip():
             return []
 
@@ -369,18 +369,20 @@ class LanceDBManager:
                 except Exception:
                     meta = {}
 
-            combined_results.append({
-                "text": r.get("text"),
-                "coordenada_x": cx,
-                "coordenada_y": cy,
-                "coordenada_z": cz,
-                "coordenada_w": cw,
-                "distancia_4d": round(dist_4d, 4),
-                "rrf_score": round(rrf_score, 6),
-                "final_score": round(final_score, 6),
-                "escala_magnitud": r.get("escala_magnitud", "KB"),
-                "metadata": meta,
-            })
+            combined_results.append(
+                {
+                    "text": r.get("text"),
+                    "coordenada_x": cx,
+                    "coordenada_y": cy,
+                    "coordenada_z": cz,
+                    "coordenada_w": cw,
+                    "distancia_4d": round(dist_4d, 4),
+                    "rrf_score": round(rrf_score, 6),
+                    "final_score": round(final_score, 6),
+                    "escala_magnitud": r.get("escala_magnitud", "KB"),
+                    "metadata": meta,
+                }
+            )
 
         combined_results.sort(key=lambda item: item["final_score"], reverse=True)
         return combined_results[:top_n]
@@ -394,7 +396,7 @@ class LanceDBManager:
         paso_adaptativo: int = 3,
         incremento_top_k: int = 2,
         decremento_umbral: float = 0.05,
-        emotion_filter: str | None = None
+        emotion_filter: str | None = None,
     ) -> dict:
         """
         Algoritmo de escrutinio progresivo que relaja dinámicamente top_k y umbral_similitud
@@ -410,8 +412,8 @@ class LanceDBManager:
                     "top_k_final": top_k_inicial,
                     "umbral_final": umbral_similitud_inicial,
                     "exito": False,
-                    "motivo": "Consulta vacía"
-                }
+                    "motivo": "Consulta vacía",
+                },
             }
 
         current_top_k = top_k_inicial
@@ -438,8 +440,8 @@ class LanceDBManager:
                         "intentos": intento,
                         "top_k_final": current_top_k,
                         "umbral_final": round(current_umbral, 4),
-                        "exito": True
-                    }
+                        "exito": True,
+                    },
                 }
 
             if intento % paso_adaptativo == 0:
@@ -461,8 +463,8 @@ class LanceDBManager:
                 "top_k_final": current_top_k,
                 "umbral_final": round(current_umbral, 4),
                 "exito": False,
-                "motivo": "Sin coincidencias dentro del margen de confianza"
-            }
+                "motivo": "Sin coincidencias dentro del margen de confianza",
+            },
         }
 
     async def handle_buscar(self, writer, data: dict):
@@ -488,7 +490,7 @@ class LanceDBManager:
                     umbral_similitud_inicial=umbral_ini,
                     max_intentos=max_int,
                     paso_adaptativo=paso_adap,
-                    emotion_filter=emotion_filter
+                    emotion_filter=emotion_filter,
                 )
                 clean_results = res.get("results", [])
                 status = res.get("status", "success")
@@ -500,19 +502,11 @@ class LanceDBManager:
                 status = "success"
                 telemetria = None
 
-            response_data = {
-                "request_id": request_id,
-                "results": clean_results,
-                "status": status
-            }
+            response_data = {"request_id": request_id, "results": clean_results, "status": status}
             if telemetria:
                 response_data["telemetria"] = telemetria
 
-            response = {
-                "action": "publish",
-                "topic": "canal.memoria.respuesta",
-                "data": response_data
-            }
+            response = {"action": "publish", "topic": "canal.memoria.respuesta", "data": response_data}
             if writer:
                 writer.write((json.dumps(response) + "\n").encode("utf-8"))
                 await writer.drain()
@@ -525,11 +519,7 @@ class LanceDBManager:
                 response = {
                     "action": "publish",
                     "topic": "canal.memoria.respuesta",
-                    "data": {
-                        "request_id": request_id,
-                        "error": str(e),
-                        "status": "failed"
-                    }
+                    "data": {"request_id": request_id, "error": str(e), "status": "failed"},
                 }
                 try:
                     writer.write((json.dumps(response) + "\n").encode("utf-8"))
@@ -541,17 +531,12 @@ class LanceDBManager:
         if not writer:
             return
         try:
-            error_event = {
-                "action": "publish",
-                "topic": "canal.memoria.error",
-                "data": {
-                    "error": error_msg
-                }
-            }
+            error_event = {"action": "publish", "topic": "canal.memoria.error", "data": {"error": error_msg}}
             writer.write((json.dumps(error_event) + "\n").encode("utf-8"))
             await writer.drain()
         except Exception as e:
             logger.error(f"Failed to publish error to broker: {e}")
+
 
 if __name__ == "__main__":
     mock_emb = "--mock" in sys.argv
@@ -561,4 +546,3 @@ if __name__ == "__main__":
         asyncio.run(manager.run())
     except KeyboardInterrupt:
         logger.info("LanceDB Manager stopped.")
-

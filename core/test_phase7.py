@@ -10,9 +10,10 @@ import aiohttp
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] TestPhase7: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("TestPhase7")
+
 
 async def test_gui_integration():
     api_url = "http://127.0.0.1:8000/upload_sensorial"
@@ -29,10 +30,7 @@ async def test_gui_integration():
         sys.exit(1)
 
     # Subscribe to target topics to verify event relays
-    subscribe_msg = json.dumps({
-        "action": "subscribe",
-        "topics": ["canal.sensorial.archivo_recibido", "system"]
-    }) + "\n"
+    subscribe_msg = json.dumps({"action": "subscribe", "topics": ["canal.sensorial.archivo_recibido", "system"]}) + "\n"
     broker_writer.write(subscribe_msg.encode("utf-8"))
     await broker_writer.drain()
     logger.info("Subscribed to broker spy channels.")
@@ -50,7 +48,9 @@ async def test_gui_integration():
             async with session.post(api_url, data=data, timeout=5.0) as resp:
                 if resp.status == 200:
                     res_json = await resp.json()
-                    logger.info(f"FastAPI upload replied status: {res_json.get('status')}. Path: {res_json.get('file_path')}")
+                    logger.info(
+                        f"FastAPI upload replied status: {res_json.get('status')}. Path: {res_json.get('file_path')}"
+                    )
                 else:
                     logger.error(f"FastAPI upload endpoint failed with status {resp.status}")
     except Exception as e:
@@ -62,9 +62,7 @@ async def test_gui_integration():
         async with aiohttp.ClientSession() as session, session.ws_connect(ws_url) as ws:
             logger.info("WebSocket connected successfully. Sending mock PANIC stop request...")
             # Send panic stopping trigger
-            panic_payload = {
-                "action": "panic"
-            }
+            panic_payload = {"action": "panic"}
             await ws.send_str(json.dumps(panic_payload))
             logger.info("Panic trigger sent via WebSocket.")
             await asyncio.sleep(1.0)
@@ -76,7 +74,7 @@ async def test_gui_integration():
     panic_event_verified = False
 
     start_time = time.time()
-    while time.time() - start_time < 15: # 15s timeout
+    while time.time() - start_time < 15:  # 15s timeout
         try:
             line = await asyncio.wait_for(broker_reader.readline(), timeout=1.0)
             if not line:
@@ -100,7 +98,9 @@ async def test_gui_integration():
                     panic_event_verified = True
 
             if file_event_verified and panic_event_verified:
-                logger.info("\n" + "="*46 + "\nALL PHASE 7 INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "="*46 + "\n")
+                logger.info(
+                    "\n" + "=" * 46 + "\nALL PHASE 7 INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "=" * 46 + "\n"
+                )
                 sys.exit(0)
 
         except asyncio.TimeoutError:
@@ -111,6 +111,7 @@ async def test_gui_integration():
 
     logger.error(f"Test timed out. Progress: file_relayed={file_event_verified}, panic_relayed={panic_event_verified}")
     sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(test_gui_integration())

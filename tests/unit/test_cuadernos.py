@@ -13,16 +13,17 @@ def cuadernos_mgr(monkeypatch):
     if c_dir.exists():
         shutil.rmtree(c_dir, ignore_errors=True)
     c_dir.mkdir(parents=True, exist_ok=True)
-    
+
     monkeypatch.setattr("cognitivo.cuadernos_manager.CUADERNOS_DIR", str(c_dir))
     monkeypatch.setattr("cognitivo.cuadernos_manager.METADATA_FILE", str(c_dir / "notebooks.json"))
     monkeypatch.setattr("cognitivo.cuadernos_manager.SOURCES_DIR", str(c_dir / "sources"))
     monkeypatch.setattr("cognitivo.cuadernos_manager.LANCE_DB_PATH", str(c_dir / "lancedb_cuadernos"))
-    
+
     mgr = CuadernosManager()
     yield mgr
 
     shutil.rmtree(c_dir, ignore_errors=True)
+
 
 def test_create_and_list_cuadernos(cuadernos_mgr):
     nb = cuadernos_mgr.create_cuaderno("Cuaderno de Prueba", "Descripción de prueba")
@@ -33,11 +34,12 @@ def test_create_and_list_cuadernos(cuadernos_mgr):
     assert len(notebooks) == 1
     assert notebooks[0]["id"] == nb["id"]
 
+
 @pytest.mark.asyncio
 async def test_add_fuente_and_process(cuadernos_mgr):
     nb = cuadernos_mgr.create_cuaderno("Cuaderno RAG", "Para probar fuentes")
     file_content = b"Este es un texto de prueba sobre la arquitectura de Vision OS y LanceDB."
-    
+
     fuente = await cuadernos_mgr.add_fuente(nb["id"], "test_doc.txt", file_content)
     assert fuente["filename"] == "test_doc.txt"
 
@@ -49,6 +51,7 @@ async def test_add_fuente_and_process(cuadernos_mgr):
     assert len(sources) == 1
     assert sources[0]["filename"] == "test_doc.txt"
     assert sources[0]["status"] == "ready"
+
 
 @pytest.mark.asyncio
 async def test_investigar_y_crear_cuaderno(cuadernos_mgr, monkeypatch):
@@ -69,6 +72,7 @@ async def test_investigar_y_crear_cuaderno(cuadernos_mgr, monkeypatch):
     assert len(notebooks[0]["sources"]) == 1
     assert len(notebooks[0]["notes"]) == 2
 
+
 def test_delete_cuaderno(cuadernos_mgr):
     nb = cuadernos_mgr.create_cuaderno("A eliminar", "Temporal")
     deleted = cuadernos_mgr.delete_cuaderno(nb["id"])
@@ -81,12 +85,20 @@ def test_delete_cuaderno(cuadernos_mgr):
 @pytest.mark.asyncio
 async def test_chat_cuaderno_stream_params(cuadernos_mgr, monkeypatch):
     nb = cuadernos_mgr.create_cuaderno("Cuaderno Params", "Prueba de parámetros")
-    
+
     # Mock WebSearchEngine
     class MockSearchResponse:
         status = "success"
         results = [
-            type("Item", (), {"title": "Noticia Python 3.13", "url": "https://example.com", "snippet": "Python 3.13 incluye un nuevo JIT compiler."})
+            type(
+                "Item",
+                (),
+                {
+                    "title": "Noticia Python 3.13",
+                    "url": "https://example.com",
+                    "snippet": "Python 3.13 incluye un nuevo JIT compiler.",
+                },
+            )
         ]
 
     class MockSearchEngine:
@@ -98,11 +110,7 @@ async def test_chat_cuaderno_stream_params(cuadernos_mgr, monkeypatch):
 
     chunks = []
     async for chunk in cuadernos_mgr.chat_cuaderno_stream(
-        notebook_id=nb["id"],
-        query="Python 3.13 JIT",
-        search_web=True,
-        max_web_results=3,
-        response_style="abierto"
+        notebook_id=nb["id"], query="Python 3.13 JIT", search_web=True, max_web_results=3, response_style="abierto"
     ):
         chunks.append(chunk)
 
@@ -113,7 +121,7 @@ async def test_chat_cuaderno_stream_params(cuadernos_mgr, monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_cuaderno_stream_busqueda_profunda(cuadernos_mgr, monkeypatch):
     nb = cuadernos_mgr.create_cuaderno("Cuaderno Profundo", "Prueba de búsqueda profunda")
-    
+
     # Mock WebSearchEngine con 22 fuentes
     class MockItem:
         def __init__(self, idx):
@@ -138,7 +146,7 @@ async def test_chat_cuaderno_stream_busqueda_profunda(cuadernos_mgr, monkeypatch
         query="Arquitectura Cognitiva Avanzada",
         search_web=True,
         max_web_results=25,
-        response_style="abierto"
+        response_style="abierto",
     ):
         chunks.append(chunk)
 
@@ -153,5 +161,3 @@ async def test_chat_cuaderno_stream_busqueda_profunda(cuadernos_mgr, monkeypatch
     assert report_note["type"] == "informe_profundo"
     assert "Informe de Investigación Profunda" in report_note["content"]
     assert "Total de Fuentes Consultadas**: 22" in report_note["content"]
-
-

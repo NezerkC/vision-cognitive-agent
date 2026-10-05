@@ -18,7 +18,7 @@ import sys
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] TorreProg: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("TorreProgramacion")
 
@@ -30,13 +30,11 @@ try:
     from typing import TypedDict
 
     from langgraph.graph import END, StateGraph
+
     LANGRAPH_DISPONIBLE = True
 except ImportError:
     LANGRAPH_DISPONIBLE = False
-    logger.warning(
-        "⚠️ langgraph no está instalado. La torre no funcionará hasta que corras:\n"
-        "   pip install langgraph"
-    )
+    logger.warning("⚠️ langgraph no está instalado. La torre no funcionará hasta que corras:\n   pip install langgraph")
     # Placeholder types para que el archivo se pueda importar sin error
     TypedDict = dict
     StateGraph = object
@@ -45,6 +43,7 @@ except ImportError:
 
 class EstadoEdificio(TypedDict):
     """Documentos que se pasan de escritorio en escritorio."""
+
     peticion_usuario: str
     plan_arquitectura: str
     codigo_generado: str
@@ -88,10 +87,7 @@ async def agente_programador(state: EstadoEdificio) -> dict:
     )
     codigo = await enrutar_peticion(prompt, esfuerzo="esfuerzo_alto")
     logger.info(f"💻 Código generado ({len(codigo)} chars, iteración {state.get('iteraciones', 0) + 1})")
-    return {
-        "codigo_generado": codigo,
-        "iteraciones": state.get("iteraciones", 0) + 1
-    }
+    return {"codigo_generado": codigo, "iteraciones": state.get("iteraciones", 0) + 1}
 
 
 async def agente_qa(state: EstadoEdificio) -> dict:
@@ -149,9 +145,7 @@ def construir_torre_programacion():
       Arquitecto → Programador → QA → ¿Errores? → Programador (loop) o END
     """
     if not LANGRAPH_DISPONIBLE:
-        raise ImportError(
-            "LangGraph no está instalado. Corré: pip install langgraph"
-        )
+        raise ImportError("LangGraph no está instalado. Corré: pip install langgraph")
 
     constructor = StateGraph(EstadoEdificio)
 
@@ -172,7 +166,7 @@ def construir_torre_programacion():
         {
             "corregir": "Programador",
             "fin": END,
-        }
+        },
     )
 
     return constructor.compile()
@@ -192,10 +186,7 @@ async def ejecutar_peticion_codigo(peticion: str) -> str:
         El código final generado después de pasar por QA.
     """
     if not LANGRAPH_DISPONIBLE:
-        return (
-            "⚠️ La Torre de Programación requiere LangGraph.\n"
-            "Instalalo con: pip install langgraph"
-        )
+        return "⚠️ La Torre de Programación requiere LangGraph.\nInstalalo con: pip install langgraph"
 
     torre = construir_torre_programacion()
     estado_inicial: EstadoEdificio = {
@@ -222,8 +213,7 @@ if __name__ == "__main__":
 
     async def demo():
         codigo = await ejecutar_peticion_codigo(
-            "Hacé una función en Python que dado un array de números, "
-            "devuelva los que son primos."
+            "Hacé una función en Python que dado un array de números, devuelva los que son primos."
         )
         print("\n" + "=" * 60)
         print("CÓDIGO GENERADO:")

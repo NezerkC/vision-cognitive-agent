@@ -12,9 +12,10 @@ import yaml
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] Watchdog: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("Watchdog")
+
 
 class BrainstemWatchdog:
     def __init__(self, use_mock_db: bool = False):
@@ -65,62 +66,44 @@ class BrainstemWatchdog:
             return ["--mock"] if is_mock else []
 
         self.services = {
-            "broker": {
-                "path": os.path.join(script_dir, "broker_eventos.py"),
-                "args": []
-            },
-            "amigdala": {
-                "path": os.path.join(script_dir, "amigdala.py"),
-                "args": []
-            },
-            "router": {
-                "path": os.path.join(project_root, "cognitivo", "llm_router.py"),
-                "args": []
-            },
+            "broker": {"path": os.path.join(script_dir, "broker_eventos.py"), "args": []},
+            "amigdala": {"path": os.path.join(script_dir, "amigdala.py"), "args": []},
+            "router": {"path": os.path.join(project_root, "cognitivo", "llm_router.py"), "args": []},
             "lancedb": {
                 "path": os.path.join(project_root, "memoria", "lancedb_manager.py"),
-                "args": get_args("lancedb", "lancedb_manager")
+                "args": get_args("lancedb", "lancedb_manager"),
             },
-            "hipocampo": {
-                "path": os.path.join(project_root, "memoria", "hipocampo.py"),
-                "args": []
-            },
+            "hipocampo": {"path": os.path.join(project_root, "memoria", "hipocampo.py"), "args": []},
             "vision": {
                 "path": os.path.join(project_root, "sentidos", "vision_parietal.py"),
-                "args": get_args("vision", "vision_parietal")
+                "args": get_args("vision", "vision_parietal"),
             },
-            "contexto": {
-                "path": os.path.join(project_root, "cognitivo", "contexto_derecho.py"),
-                "args": []
-            },
+            "contexto": {"path": os.path.join(project_root, "cognitivo", "contexto_derecho.py"), "args": []},
             "oido": {
                 "path": os.path.join(project_root, "sentidos", "oido_parietal.py"),
-                "args": get_args("oido", "oido_parietal")
+                "args": get_args("oido", "oido_parietal"),
             },
             "ejecutor": {
                 "path": os.path.join(project_root, "cognitivo", "ejecutor_izquierdo.py"),
-                "args": get_args("ejecutor", "ejecutor_izquierdo")
+                "args": get_args("ejecutor", "ejecutor_izquierdo"),
             },
             "imaginacion": {
                 "path": os.path.join(project_root, "sentidos", "imaginacion_occipital.py"),
-                "args": get_args("imaginacion", "imaginacion_occipital")
+                "args": get_args("imaginacion", "imaginacion_occipital"),
             },
-            "periferico": {
-                "path": os.path.join(project_root, "sentidos", "sistema_periferico.py"),
-                "args": []
-            },
+            "periferico": {"path": os.path.join(project_root, "sentidos", "sistema_periferico.py"), "args": []},
             "intriga": {
                 "path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"),
-                "args": get_args("intriga", "protocolo_intriga")
+                "args": get_args("intriga", "protocolo_intriga"),
             },
             "web_search": {
                 "path": os.path.join(project_root, "cognitivo", "web_search.py"),
-                "args": get_args("web_search", "web_search")
+                "args": get_args("web_search", "web_search"),
             },
             "habla": {
                 "path": os.path.join(project_root, "sentidos", "habla_parietal.py"),
-                "args": get_args("habla", "habla_parietal")
-            }
+                "args": get_args("habla", "habla_parietal"),
+            },
         }
 
     async def _log_stream(self, stream, prefix: str):
@@ -145,11 +128,7 @@ class BrainstemWatchdog:
             start_time = time.time()
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    python_executable,
-                    path,
-                    *args,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
+                    python_executable, path, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
                 self.processes[name] = proc
                 self.process_start_times[name] = start_time
@@ -191,17 +170,9 @@ class BrainstemWatchdog:
             for name, proc in list(self.processes.items()):
                 if proc.returncode is None:
                     uptime = time.time() - self.process_start_times.get(name, time.time())
-                    status[name] = {
-                        "status": "running",
-                        "pid": proc.pid,
-                        "uptime_s": int(uptime)
-                    }
+                    status[name] = {"status": "running", "pid": proc.pid, "uptime_s": int(uptime)}
                 else:
-                    status[name] = {
-                        "status": "stopped",
-                        "pid": proc.pid,
-                        "exit_code": proc.returncode
-                    }
+                    status[name] = {"status": "stopped", "pid": proc.pid, "exit_code": proc.returncode}
             try:
                 os.makedirs(os.path.dirname(health_path), exist_ok=True)
                 with open(health_path, "w") as f:
@@ -212,17 +183,11 @@ class BrainstemWatchdog:
 
     async def start(self):
         # 0. Start the health status writer
-        self.tasks.append(
-            asyncio.create_task(self.write_health_status())
-        )
+        self.tasks.append(asyncio.create_task(self.write_health_status()))
 
         # 1. Start the Event Broker first
         broker_cfg = self.services["broker"]
-        self.tasks.append(
-            asyncio.create_task(
-                self.supervise_service("broker", broker_cfg["path"], broker_cfg["args"])
-            )
-        )
+        self.tasks.append(asyncio.create_task(self.supervise_service("broker", broker_cfg["path"], broker_cfg["args"])))
 
         # 2. Wait for the Event Broker to initialize and bind the TCP port
         logger.info("Initializing heartbeat socket connection pool...")
@@ -232,11 +197,7 @@ class BrainstemWatchdog:
         for name, cfg in self.services.items():
             if name == "broker":
                 continue
-            self.tasks.append(
-                asyncio.create_task(
-                    self.supervise_service(name, cfg["path"], cfg["args"])
-                )
-            )
+            self.tasks.append(asyncio.create_task(self.supervise_service(name, cfg["path"], cfg["args"])))
 
         # Keep running until cancelled
         try:
@@ -263,6 +224,7 @@ class BrainstemWatchdog:
             except Exception as e:
                 logger.error(f"Failed to terminate [{name.upper()}]: {e}")
 
+
 async def main():
     use_mock = "--mock" in sys.argv
     if use_mock:
@@ -286,6 +248,7 @@ async def main():
         logger.info("Watchdog interrupted by user.")
     finally:
         watchdog.stop()
+
 
 if __name__ == "__main__":
     try:

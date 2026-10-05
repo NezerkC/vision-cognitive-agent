@@ -17,9 +17,7 @@ async def is_model_available_locally(model_tag: str) -> bool:
     """
     try:
         process = await asyncio.create_subprocess_exec(
-            "ollama", "list",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            "ollama", "list", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         stdout, _ = await process.communicate()
         if process.returncode == 0:
@@ -60,10 +58,9 @@ async def pull_model_if_missing(model_name: str, mock: bool = False) -> bool:
     logger.warning(f"Model '{model_tag}' is missing! Initiating dynamic 'ollama pull {model_tag}'...")
     try:
         process = await asyncio.create_subprocess_exec(
-            "ollama", "pull", model_tag,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            "ollama", "pull", model_tag, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
+
         # Read outputs line by line to show download progress in real-time logs
         async def log_stream(stream):
             while True:
@@ -74,11 +71,7 @@ async def pull_model_if_missing(model_name: str, mock: bool = False) -> bool:
                 if decoded:
                     logger.info(f"[Ollama Pull] {decoded}")
 
-        await asyncio.gather(
-            log_stream(process.stdout),
-            log_stream(process.stderr),
-            process.wait()
-        )
+        await asyncio.gather(log_stream(process.stdout), log_stream(process.stderr), process.wait())
 
         if process.returncode == 0:
             logger.info(f"Successfully downloaded and loaded local model '{model_tag}'.")

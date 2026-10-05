@@ -10,17 +10,20 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class BaseEventData(BaseModel):
     """Base class for all inner event data payloads."""
+
     model_config = ConfigDict(extra="allow")
 
 
 class SystemEventData(BaseEventData):
     """System control event data (e.g. purge, shutdown, ping)."""
+
     action: str = Field(..., description="System action to perform")
     reason: str | None = Field(None, description="Optional explanation or trigger reason")
 
 
 class MemoriaEventData(BaseEventData):
     """Data payload for memory storage and retrieval operations."""
+
     action: str = Field(..., description="Memory operation: guardar, buscar, etc.")
     text: str | None = Field(None, description="Text content to process or store")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Metadata key-value pairs")
@@ -28,6 +31,7 @@ class MemoriaEventData(BaseEventData):
 
 class VisionSensorialEventData(BaseEventData):
     """Data payload for vision parietal sensory inputs."""
+
     action: str = Field("analizar_imagen", description="Vision action")
     file_path: str = Field(..., description="Path to image file")
     filename: str | None = Field(None, description="Original filename")
@@ -36,6 +40,7 @@ class VisionSensorialEventData(BaseEventData):
 
 class AudioSensorialEventData(BaseEventData):
     """Data payload for audio sensory processing."""
+
     file_path: str = Field(..., description="Path to raw audio file")
     filename: str | None = Field(None, description="Original filename")
 
@@ -44,6 +49,7 @@ class EventEnvelope(BaseModel):
     """
     Standard message envelope transmitted across TCP Event Broker sockets.
     """
+
     topic: str = Field(..., description="Target topic name (e.g. canal.memoria)")
     data: dict[str, Any] = Field(default_factory=dict, description="Inner event payload")
 

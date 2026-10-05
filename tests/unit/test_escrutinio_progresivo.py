@@ -11,18 +11,14 @@ async def test_escrutinio_progresivo_exito_inmediato():
 
     mock_candidatos = [
         {"text": "Dato altamente relevante", "final_score": 0.85},
-        {"text": "Otro dato", "final_score": 0.75}
+        {"text": "Otro dato", "final_score": 0.75},
     ]
 
     with patch.object(manager, "buscar_hibrido_rrf_impl", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = mock_candidatos
 
         res = await manager.buscar_con_escrutinio_progresivo(
-            query="test query",
-            top_k_inicial=3,
-            umbral_similitud_inicial=0.7,
-            max_intentos=10,
-            paso_adaptativo=3
+            query="test query", top_k_inicial=3, umbral_similitud_inicial=0.7, max_intentos=10, paso_adaptativo=3
         )
 
         assert res["status"] == "success"
@@ -52,7 +48,7 @@ async def test_escrutinio_progresivo_relajacion_adaptativa():
             max_intentos=10,
             paso_adaptativo=3,
             incremento_top_k=2,
-            decremento_umbral=0.05
+            decremento_umbral=0.05,
         )
 
         assert res["status"] == "success"
@@ -82,7 +78,7 @@ async def test_escrutinio_progresivo_fallback():
             max_intentos=10,
             paso_adaptativo=3,
             incremento_top_k=2,
-            decremento_umbral=0.05
+            decremento_umbral=0.05,
         )
 
         assert res["status"] == "fallback"

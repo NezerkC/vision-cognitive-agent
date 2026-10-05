@@ -7,10 +7,9 @@ from langchain_core.tools import tool
 logger = logging.getLogger("SistemaEmocional")
 
 EMOTIONS_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "config",
-    "emotions.json"
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "config", "emotions.json"
 )
+
 
 @tool
 def actualizar_emocion(estado: str, intensidad: float) -> str:
@@ -24,10 +23,7 @@ def actualizar_emocion(estado: str, intensidad: float) -> str:
         intensidad = max(0.0, min(1.0, float(intensidad)))
 
         # Cargar datos
-        emociones = {
-            "estado": estado,
-            "intensidad": intensidad
-        }
+        emociones = {"estado": estado, "intensidad": intensidad}
 
         # Guardar en emotions.json
         os.makedirs(os.path.dirname(EMOTIONS_PATH), exist_ok=True)

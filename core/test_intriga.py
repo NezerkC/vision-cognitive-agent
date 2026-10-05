@@ -8,9 +8,10 @@ import time
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] TestIntriga: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("TestIntriga")
+
 
 async def test_ticketing():
     host = "127.0.0.1"
@@ -24,14 +25,12 @@ async def test_ticketing():
         sys.exit(1)
 
     # Subscribe to required topics to spy on the messaging pipeline
-    subscribe_msg = json.dumps({
-        "action": "subscribe",
-        "topics": [
-            "canal.sistema.anuncios",
-            "canal.cognitivo.peticion",
-            "canal.memoria"
-        ]
-    }) + "\n"
+    subscribe_msg = (
+        json.dumps(
+            {"action": "subscribe", "topics": ["canal.sistema.anuncios", "canal.cognitivo.peticion", "canal.memoria"]}
+        )
+        + "\n"
+    )
     writer.write(subscribe_msg.encode("utf-8"))
     await writer.drain()
     logger.info("Subscribed to test topics.")
@@ -43,10 +42,7 @@ async def test_ticketing():
     context_payload = {
         "action": "publish",
         "topic": "canal.sistema.contexto_actual",
-        "data": {
-            "contexto": f"ANOMALIA_DETECTADA: {anomaly_text}",
-            "timestamp": time.time()
-        }
+        "data": {"contexto": f"ANOMALIA_DETECTADA: {anomaly_text}", "timestamp": time.time()},
     }
     writer.write((json.dumps(context_payload) + "\n").encode("utf-8"))
     await writer.drain()
@@ -58,7 +54,7 @@ async def test_ticketing():
     solution_saved = False
 
     start_time = time.time()
-    while time.time() - start_time < 20: # 20s timeout
+    while time.time() - start_time < 20:  # 20s timeout
         try:
             line = await asyncio.wait_for(reader.readline(), timeout=1.0)
             if not line:
@@ -81,10 +77,7 @@ async def test_ticketing():
                     confirm_payload = {
                         "action": "publish",
                         "topic": "canal.sensorial.audio.transcripcion",
-                        "data": {
-                            "transcripcion": "si, procede a investigar por favor",
-                            "timestamp": time.time()
-                        }
+                        "data": {"transcripcion": "si, procede a investigar por favor", "timestamp": time.time()},
                     }
                     writer.write((json.dumps(confirm_payload) + "\n").encode("utf-8"))
                     await writer.drain()
@@ -104,7 +97,9 @@ async def test_ticketing():
                     solution_saved = True
 
             if ticket_announced and voice_confirmed and formulation_requested and solution_saved:
-                logger.info("\n" + "="*48 + "\nALL TICKETING INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "="*48 + "\n")
+                logger.info(
+                    "\n" + "=" * 48 + "\nALL TICKETING INTEGRATION TESTS PASSED SUCCESSFULLY!\n" + "=" * 48 + "\n"
+                )
                 sys.exit(0)
 
         except asyncio.TimeoutError:
@@ -113,8 +108,11 @@ async def test_ticketing():
             logger.error(f"Error in test loop: {e}")
             break
 
-    logger.error(f"Test timed out. Progress: announced={ticket_announced}, confirmed={voice_confirmed}, formulated={formulation_requested}, saved={solution_saved}")
+    logger.error(
+        f"Test timed out. Progress: announced={ticket_announced}, confirmed={voice_confirmed}, formulated={formulation_requested}, saved={solution_saved}"
+    )
     sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(test_ticketing())

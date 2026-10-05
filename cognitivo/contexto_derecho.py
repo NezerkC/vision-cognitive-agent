@@ -12,9 +12,10 @@ import psutil
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] HemisferioDerecho: %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("ContextoDerecho")
+
 
 class ContextoDerecho:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000):
@@ -29,14 +30,15 @@ class ContextoDerecho:
                 logger.info("Connected to event broker.")
 
                 # Subscribe to visual sensory feed and LLM responses
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": [
-                        "canal.sensorial.vision",
-                        "canal.cognitivo.respuesta",
-                        "system"
-                    ]
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps(
+                        {
+                            "action": "subscribe",
+                            "topics": ["canal.sensorial.vision", "canal.cognitivo.respuesta", "system"],
+                        }
+                    )
+                    + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -92,8 +94,8 @@ class ContextoDerecho:
                                 ),
                                 "image_base64": img_b64,
                                 "esfuerzo_requerido": "esfuerzo_bajo",
-                                "mock": mock
-                            }
+                                "mock": mock,
+                            },
                         }
                         writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
                         await writer.drain()
@@ -119,10 +121,7 @@ class ContextoDerecho:
                             context_event = {
                                 "action": "publish",
                                 "topic": "canal.sistema.contexto_actual",
-                                "data": {
-                                    "contexto": response_text,
-                                    "timestamp": time.time()
-                                }
+                                "data": {"contexto": response_text, "timestamp": time.time()},
                             }
                             writer.write((json.dumps(context_event) + "\n").encode("utf-8"))
                             await writer.drain()
@@ -163,15 +162,17 @@ class ContextoDerecho:
                 # Check if it's already running in current processes
                 is_running = False
                 try:
-                    for proc in psutil.process_iter(['name']):
-                        if cli in (proc.info['name'] or '').lower():
+                    for proc in psutil.process_iter(["name"]):
+                        if cli in (proc.info["name"] or "").lower():
                             is_running = True
                             break
                 except Exception:
                     pass
 
                 if not os.path.exists(tool_path):
-                    logger.info(f"⚡ [Zapatilla Eléctrica] Detected installed CLI '{cli}' without matching skill script. Triggering auto-training...")
+                    logger.info(
+                        f"⚡ [Zapatilla Eléctrica] Detected installed CLI '{cli}' without matching skill script. Triggering auto-training..."
+                    )
                     # Publish training request
                     training_msg = {
                         "action": "publish",
@@ -181,8 +182,8 @@ class ContextoDerecho:
                             "modo": "capacitacion",
                             "cli_name": cli,
                             "is_running": is_running,
-                            "timestamp": time.time()
-                        }
+                            "timestamp": time.time(),
+                        },
                     }
                     writer.write((json.dumps(training_msg) + "\n").encode("utf-8"))
                     await writer.drain()
