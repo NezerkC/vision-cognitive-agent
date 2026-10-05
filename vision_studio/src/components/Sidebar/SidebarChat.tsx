@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Send, Bot, User, MessageSquare, ClipboardList, Hammer, Search, Zap, Clock, Terminal, FileCode, FileText } from 'lucide-react';
+import { useState } from 'react';
+import { Send, Bot, User, MessageSquare, ClipboardList, Hammer, Search, Zap, Clock, Terminal, FileCode } from 'lucide-react';
 import EmotionState from './EmotionState';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { invoke } from '@tauri-apps/api/core';

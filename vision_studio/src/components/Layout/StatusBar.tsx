@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useWebSocketTelemetry } from '../../stores/useWebSocketTelemetry';
 
 export default function StatusBar() {

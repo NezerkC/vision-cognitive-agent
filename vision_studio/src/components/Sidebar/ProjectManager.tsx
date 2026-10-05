@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { FolderOpen, GitPullRequest, History, ArrowRight, Loader2, Folder, CheckCircle, AlertCircle } from 'lucide-react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 

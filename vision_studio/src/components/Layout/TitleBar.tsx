@@ -1,4 +1,3 @@
-import React from 'react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 export default function TitleBar() {

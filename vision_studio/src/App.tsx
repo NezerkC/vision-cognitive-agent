@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react';
-import { Panel, Group } from "react-resizable-panels";
+import { Panel, Group, useDefaultLayout } from "react-resizable-panels";
 import { useSettingsStore } from './stores/useSettingsStore';
 import SettingsModal from './components/Settings/SettingsModal';
 import ToastContainer from './components/Notifications/ToastContainer';
@@ -21,6 +21,14 @@ export default function App() {
   const isTerminalOpen = useSettingsStore((state) => state.isTerminalOpen);
   const activeSidebarTab = useSettingsStore((state) => state.activeSidebarTab);
 
+  // Persist panel layouts across reloads (localStorage); replaces the pre-v4 autoSaveId prop.
+  const mainLayout = useDefaultLayout({ id: 'vision-layout' });
+  // panelIds keeps a separate saved layout per terminal open/closed combination.
+  const editorLayout = useDefaultLayout({
+    id: 'vision-editor-layout',
+    panelIds: isTerminalOpen ? ['editor-main-panel', 'terminal-panel'] : ['editor-main-panel'],
+  });
+
   return (
     <div className="app">
       <TitleBar />
@@ -29,19 +37,19 @@ export default function App() {
       <div className="main">
         <ActivityBar />
 
-        <Group orientation="horizontal" className="flex-1 overflow-hidden" autoSaveId="vision-layout">
+        <Group orientation="horizontal" className="flex-1 overflow-hidden" defaultLayout={mainLayout.defaultLayout} onLayoutChanged={mainLayout.onLayoutChanged}>
           {/* Panel Izquierdo: Explorador */}
-          <Panel defaultSize={15} minSize={10}>
+          <Panel id="sidebar-panel" defaultSize="15%" minSize="10%">
             <Suspense fallback={<div className="h-full w-full bg-[#252526]"></div>}>
               <SidebarComponents />
             </Suspense>
           </Panel>
 
           {/* Panel Central: Editor y Terminal */}
-          <Panel defaultSize={65} minSize={30}>
+          <Panel id="editor-panel" defaultSize="65%" minSize="30%">
             <div className="editor-area">
-              <Group orientation="vertical" autoSaveId="vision-editor-layout">
-                <Panel defaultSize={isTerminalOpen ? 70 : 100} minSize={20}>
+              <Group orientation="vertical" defaultLayout={editorLayout.defaultLayout} onLayoutChanged={editorLayout.onLayoutChanged}>
+                <Panel id="editor-main-panel" defaultSize={isTerminalOpen ? "70%" : "100%"} minSize="20%">
                   {activeSidebarTab === 'agents' ? (
                     <Suspense fallback={<div className="editor-placeholder">Cargando Mapa Cerebral Sináptico...</div>}>
                       <AgentsSynapticView />
@@ -54,7 +62,7 @@ export default function App() {
                 </Panel>
                 
                 {isTerminalOpen && (
-                  <Panel defaultSize={30} minSize={10} className="terminal-panel">
+                  <Panel id="terminal-panel" defaultSize="30%" minSize="10%" className="terminal-panel">
                     <div className="terminal-header">
                       <span>TERMINAL — bash</span>
                       <span className="close-term" onClick={() => useSettingsStore.getState().setTerminalOpen(false)}>✕</span>
@@ -69,7 +77,7 @@ export default function App() {
           </Panel>
 
           {/* Panel Derecho: Chat & Radar */}
-          <Panel defaultSize={20} minSize={15}>
+          <Panel id="chat-panel" defaultSize="20%" minSize="15%">
             <div className="chat-panel">
               <div className="chat-header">
                 <div className="title">Memoria y Contexto (Radar 4D)</div>

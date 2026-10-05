@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import Tooltip from '../UI/Tooltip';
 import FilePickerModal from '../UI/FilePickerModal';
-import { Folder, Play, Square, HardDrive, Cpu, Activity, Zap, Save, Check, Sliders, ShieldAlert, Thermometer, Layers, Lightbulb, Sparkles, RefreshCw, Search } from 'lucide-react';
+import { Folder, Play, Square, HardDrive, Cpu, Activity, Zap, Save, Check, Sliders, Thermometer, Layers, Sparkles, Search } from 'lucide-react';
 
 const OFFICIAL_PROVIDER_PRESETS = [
   {
@@ -48,7 +48,6 @@ export default function LlamaCppPanel() {
     title: '',
     initialPath: ''
   });
-  const [isHealthChecking, setIsHealthChecking] = useState(false);
 
   // Polling de Salud Real a http://localhost:8080/health y al Gateway Python
   useEffect(() => {

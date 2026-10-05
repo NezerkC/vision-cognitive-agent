@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Folder, FolderOpen, FileText, ChevronRight, ChevronDown, RefreshCw, FileCode, FileJson, FileType, File } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Folder, FolderOpen, FileText, ChevronRight, ChevronDown, RefreshCw, FileCode, FileJson, FileType } from 'lucide-react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 interface FileNode {

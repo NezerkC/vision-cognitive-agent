@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Files, Search, GitBranch, Blocks, MessageSquare, Settings, BookOpen, Kanban } from 'lucide-react';
 

@@ -1,4 +1,3 @@
-import React from 'react';
 import FileTree from './FileTree';
 import ProjectManager from './ProjectManager';
 import SidebarChat from './SidebarChat';

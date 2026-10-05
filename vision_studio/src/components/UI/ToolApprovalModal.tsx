@@ -1,4 +1,3 @@
-import React from 'react';
 import { ShieldAlert, Terminal, FileCode, Check, X } from 'lucide-react';
 
 export interface ToolApprovalRequest {

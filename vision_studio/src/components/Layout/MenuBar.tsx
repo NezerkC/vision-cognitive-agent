@@ -1,9 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+
+type MenuItem =
+  | { divider: true }
+  | { label: string; action?: () => void; shortcut?: string; divider?: false };
 
 type Menu = {
   label: string;
-  items: { label: string; action?: () => void; shortcut?: string; divider?: boolean }[];
+  items: MenuItem[];
 };
 
 export default function MenuBar() {
