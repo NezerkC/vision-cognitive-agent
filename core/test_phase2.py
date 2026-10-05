@@ -108,7 +108,7 @@ async def test_workflow():
                 logger.info("VERIFICATION PASS: Panic alert was broadcasted.")
                 panic_triggered = True
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("Timeout waiting for expected events.")
     finally:
         writer.close()

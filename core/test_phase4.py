@@ -44,7 +44,7 @@ async def test_sensory_pipeline():
                 context_captured = True
                 break
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Timeout waiting for sensory pipeline events.")
     finally:
         writer.close()

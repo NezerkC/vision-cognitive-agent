@@ -65,7 +65,7 @@ async def test_memory_pipeline():
                     logger.info("VERIFICATION PASS: Hipocampo captured task end and triggered a memory guardar event.")
                     guardar_captured = True
                     break
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Timeout waiting for memory guardar event.")
 
     if not guardar_captured:
@@ -117,7 +117,7 @@ async def test_memory_pipeline():
                     )
                     search_success = True
                     break
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("Timeout waiting for search response event.")
 
     writer.close()

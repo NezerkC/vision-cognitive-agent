@@ -17,4 +17,4 @@
 
 - **Contrato de Eventos (EventBroker):** Todo mensaje enviado por el bus TCP debe seguir la estructura de sobres tipados con `Pydantic v2` definidos en `core/schemas.py`.
 
-- **Pipelines de CI/CD (GitHub Actions):** Garantizar que todo cambio sea compatible con los workflows de `.github/workflows/ci.yml` (Security scan, Ruff lint, Pytest matriz 3.10-3.12).
+- **Pipelines de CI/CD (GitHub Actions):** Garantizar que todo cambio sea compatible con los workflows de `.github/workflows/ci.yml` (Security scan, Ruff lint, Pytest matriz 3.11-3.12).

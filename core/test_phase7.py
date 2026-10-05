@@ -103,7 +103,7 @@ async def test_gui_integration():
                 )
                 sys.exit(0)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
         except Exception as e:
             logger.error(f"Error reading broker: {e}")

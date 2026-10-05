@@ -203,7 +203,7 @@ class VisionParietal:
                                 logger.info(f"👁️ Visión Parietal: Estado mock actualizado a {self.force_mock}")
                         except Exception as ex:
                             logger.warning(f"Failed to reload mock settings in Vision: {ex}")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         except Exception as e:
             logger.error(f"Reader daemon error: {e}")

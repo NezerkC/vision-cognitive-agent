@@ -112,7 +112,7 @@ async def test_integration():
                 )
                 sys.exit(0)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
         except Exception as e:
             logger.error(f"Error during listening: {e}")

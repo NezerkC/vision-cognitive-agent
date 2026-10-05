@@ -211,7 +211,7 @@ class OidoParietal:
                                 logger.info(f"🎙️ Oído Parietal: Estado mock actualizado a {self.force_mock}")
                         except Exception as ex:
                             logger.warning(f"Failed to reload mock settings in Oido: {ex}")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass  # No message within timeout — reader_daemon keeps running
         except Exception as e:
             logger.error(f"Reader daemon error: {e}")
