@@ -5,8 +5,10 @@ import os
 import signal
 import sys
 import time
+from collections.abc import Mapping
 
 import yaml
+from dotenv import dotenv_values
 
 # Configure logging to stdout
 logging.basicConfig(
@@ -15,6 +17,28 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("Watchdog")
+
+
+def build_child_env(
+    project_root: str,
+    base_env: Mapping[str, str] | None = None,
+    dotenv_path: str | os.PathLike | None = None,
+) -> dict[str, str]:
+    """Environment for supervised services.
+
+    - Project packages (core, cognitivo, sentidos, memoria) importable from any service script.
+    - Values from the project .env loaded, without overriding variables already set in the shell.
+    - UTF-8 stdio: services write to pipes, which default to the locale codec (cp1252 on Windows).
+    """
+    env = dict(os.environ if base_env is None else base_env)
+    dotenv_path = dotenv_path or os.path.join(project_root, ".env")
+    if os.path.exists(dotenv_path):
+        for key, value in dotenv_values(dotenv_path).items():
+            if value is not None:
+                env.setdefault(key, value)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (project_root, env.get("PYTHONPATH")) if p)
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
 
 
 class BrainstemWatchdog:
@@ -118,6 +142,18 @@ class BrainstemWatchdog:
         except Exception as e:
             logger.error(f"Error reading stream for {prefix}: {e}")
 
+    async def _spawn(self, path: str, args: list[str]) -> asyncio.subprocess.Process:
+        # Run from the project root (relative data paths) with a fresh env, so .env edits apply on restart.
+        return await asyncio.create_subprocess_exec(
+            self.python_executable,
+            path,
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=self.project_root,
+            env=build_child_env(self.project_root),
+        )
+
     async def supervise_service(self, name: str, path: str, args: list[str]):
         python_executable = self.python_executable
         backoff_delay = 1
@@ -127,9 +163,7 @@ class BrainstemWatchdog:
             logger.info(f"Starting service [{name.upper()}] via: {python_executable} {path} {' '.join(args)}")
             start_time = time.time()
             try:
-                proc = await asyncio.create_subprocess_exec(
-                    python_executable, path, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
+                proc = await self._spawn(path, args)
                 self.processes[name] = proc
                 self.process_start_times[name] = start_time
 
