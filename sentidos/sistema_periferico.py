@@ -12,14 +12,14 @@ import lancedb
 import litellm
 import uvicorn
 import yaml
-from dotenv import set_key
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 
 from cognitivo.cuadernos_manager import CuadernosManager
+from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
+from sentidos.seguridad_local import accept_local_websocket, install_local_origin_guards
 
 # Configure logging
 logging.basicConfig(
@@ -32,17 +32,12 @@ logger = logging.getLogger("SistemaPeriferico")
 # Instantiate FastAPI application
 app = FastAPI(title="Vision OS - Sistema Nervioso Periférico Gateway")
 
-# Enable CORS so browser index.html can upload files and connect to WebSockets locally
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Only local origins (GUI, Vision Studio) may read responses or change state; see sentidos/seguridad_local.py
+install_local_origin_guards(app)
 
 # Directory configurations
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 TEMP_UPLOAD_DIR = os.path.join(PROJECT_ROOT, "datos_crudos", "temp")
 os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "artifacts")
@@ -451,62 +446,28 @@ async def save_new_model(request: Request):
 
 @app.get("/api/config/credenciales")
 async def get_credenciales():
-    """
-    Reads credentials from .env file and returns them.
-    Keys returned: OPENROUTER_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, LMSTUDIO_API_KEY, TAVILY_API_KEY
-    """
+    """Returns the provider credentials from .env, masked (secrets never leave the server in clear text)."""
     try:
-        from dotenv import dotenv_values
-
-        env_path = os.path.join(PROJECT_ROOT, ".env")
-        creds = {}
-        if os.path.exists(env_path):
-            env_vars = dotenv_values(env_path)
-            keys_to_return = [
-                "OPENROUTER_API_KEY",
-                "OPENAI_API_KEY",
-                "ANTHROPIC_API_KEY",
-                "LMSTUDIO_API_KEY",
-                "TAVILY_API_KEY",
-            ]
-            for k in keys_to_return:
-                creds[k] = env_vars.get(k, "")
-        return {"status": "success", "credenciales": creds}
+        return {"status": "success", "credenciales": leer_credenciales_enmascaradas(ENV_PATH)}
     except Exception as e:
         logger.error(f"Error reading credentials: {e}")
-        return JSONResponse(status_code=500, content={"status": "error", "mensaje": str(e)})
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
 @app.post("/api/config/credenciales")
 async def guardar_credenciales(request: Request):
-    """
-    Saves provider credentials (api_key, api_base) to the .env file
-    using python-dotenv's set_key() for permanent persistence.
-    """
+    """Persists one provider credential ({"clave": "<KNOWN>_API_KEY", "valor": "..."}) to .env."""
     try:
         data = await request.json()
-        proveedor = data.get("proveedor", "custom")
-        api_key = data.get("api_key", "")
-        api_base = data.get("api_base", "")
-
-        env_path = os.path.join(PROJECT_ROOT, ".env")
-        # Create .env if it doesn't exist
-        if not os.path.exists(env_path):
-            with open(env_path, "w", encoding="utf-8") as f:
-                f.write("# Vision OS — Environment Configuration\n")
-
-        changes = []
-        if api_key:
-            key_name = f"{proveedor.upper()}_API_KEY"
-            set_key(env_path, key_name, api_key)
-            changes.append(key_name)
-        if api_base:
-            base_name = f"{proveedor.upper()}_API_BASE"
-            set_key(env_path, base_name, api_base)
-            changes.append(base_name)
-
-        logger.info(f"Credenciales guardadas para '{proveedor}': {', '.join(changes)}")
-        return {"status": "success", "message": f"Credenciales guardadas en .env: {', '.join(changes)}"}
+        clave = data.get("clave", "")
+        valor = data.get("valor", "")
+        guardar_credencial(ENV_PATH, clave, valor)
+        # Make it effective for this process; other services pick it up from .env on their next start.
+        os.environ[clave] = valor
+        logger.info(f"Credencial guardada: {clave}")
+        return {"status": "success", "message": f"Credencial {clave} guardada en .env."}
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
     except Exception as e:
         logger.error(f"Error guardando credenciales: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -1178,9 +1139,11 @@ async def websocket_sensorial(websocket: WebSocket):
     """
     WebSocket endpoint connecting browser frontend clients (dashboard visual
     HUD). Listens for manual commands, HITL approvals, and Panic signals,
-    and relays them to the broker.
+    and relays them to the broker. Only local origins may connect: CORS does not apply to WebSockets.
     """
-    await websocket.accept()
+    if not await accept_local_websocket(websocket):
+        logger.warning(f"Rejected WebSocket from foreign origin: {websocket.headers.get('origin')}")
+        return
     gateway.active_websockets.append(websocket)
     logger.info(f"New dashboard client connected. Total clients: {len(gateway.active_websockets)}")
 

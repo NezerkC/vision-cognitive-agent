@@ -1623,7 +1623,7 @@ function setupCredentialSaving() {
                     const inputId = inputMap[key];
                     if (inputId && value) {
                         const input = document.getElementById(inputId);
-                        if (input) input.value = value;
+                        if (input) input.placeholder = `Configurada (${value})`;
                     }
                 });
             }
