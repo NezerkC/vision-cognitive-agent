@@ -10,6 +10,10 @@ from collections.abc import Mapping
 import yaml
 from dotenv import dotenv_values
 
+# Relayed service output (progress bars, emojis) may not fit the console codec (cp1252 on Windows).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="backslashreplace")
+
 # Configure logging to stdout
 logging.basicConfig(
     level=logging.INFO,

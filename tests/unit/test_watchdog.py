@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 
 import pytest
 
@@ -39,3 +41,15 @@ async def test_spawned_service_runs_from_project_root_and_imports_project_packag
     cwd, emoji = out.decode("utf-8").split()
     assert os.path.samefile(cwd, watchdog.project_root)
     assert emoji == "✅"
+
+
+def test_watchdog_logging_survives_characters_the_console_cannot_encode():
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONPATH": project_root}
+    code = "import logging, core.main; logging.getLogger('Watchdog').info('[PERIFERICO-ERR] Loading weights: █████ ✅')"
+
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, env=env, cwd=project_root, timeout=60)
+
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    assert b"Logging error" not in result.stderr
+    assert b"Loading weights" in result.stdout
