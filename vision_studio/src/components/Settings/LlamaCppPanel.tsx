@@ -64,7 +64,7 @@ export default function LlamaCppPanel() {
       } catch (e) {
         // Fallback al gateway Python si el ping directo falla
         try {
-          const pyRes = await fetch('http://localhost:5000/api/llamacpp/estado');
+          const pyRes = await fetch('http://127.0.0.1:8000/api/llamacpp/estado');
           if (pyRes.ok) {
             const data = await pyRes.json();
             if (data.active) {
@@ -113,7 +113,7 @@ export default function LlamaCppPanel() {
         type: 'info'
       });
       try {
-        await fetch('http://localhost:5000/api/llamacpp/detener', { method: 'POST' });
+        await fetch('http://127.0.0.1:8000/api/llamacpp/detener', { method: 'POST' });
       } catch (e) {
         console.error("Error llamando a api detener:", e);
       }
@@ -144,7 +144,7 @@ export default function LlamaCppPanel() {
       };
 
       try {
-        const res = await fetch('http://localhost:5000/api/llamacpp/iniciar', {
+        const res = await fetch('http://127.0.0.1:8000/api/llamacpp/iniciar', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
