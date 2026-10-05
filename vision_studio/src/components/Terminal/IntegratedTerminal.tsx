@@ -39,9 +39,11 @@ export default function IntegratedTerminal() {
     window.addEventListener('resize', handleResize);
 
     // Pequeño timeout para asegurar que el contenedor está renderizado antes del fit
-    setTimeout(() => fitAddon.fit(), 100);
+    const fitTimer = setTimeout(() => fitAddon.fit(), 100);
 
     return () => {
+      // Cancel the pending fit: running it on a disposed terminal throws inside xterm's viewport.
+      clearTimeout(fitTimer);
       window.removeEventListener('resize', handleResize);
       term.dispose();
     };
