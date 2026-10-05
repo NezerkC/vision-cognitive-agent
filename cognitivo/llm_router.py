@@ -321,7 +321,9 @@ class LLMRouter:
             # Execute StateGraph from orquestador_graph
             from orquestador_graph import ejecutar_orquestador_graph
 
-            response_text = await ejecutar_orquestador_graph(prompt, request_id, mock)
+            response_text = await ejecutar_orquestador_graph(
+                prompt, request_id, mock, memory_search=self.perform_memory_search
+            )
 
             response_event = {
                 "action": "publish",

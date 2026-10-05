@@ -2,9 +2,11 @@ import json
 import logging
 import operator
 import os
+from collections.abc import Awaitable, Callable
 from typing import Annotated, TypedDict
 
 import yaml
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, StateGraph
 
 # Setup logger
@@ -105,7 +107,7 @@ def _get_current_emotion() -> str:
 
 
 # Node 2: Memoria (LanceDB Query via LLMRouter)
-async def nodo_memoria(state: EstadoAgente) -> dict:
+async def nodo_memoria(state: EstadoAgente, config: RunnableConfig) -> dict:
     logger.info("--- NODO MEMORIA ---")
     input_usuario = state["input_usuario"]
     mock = state.get("mock", False)
@@ -121,14 +123,15 @@ async def nodo_memoria(state: EstadoAgente) -> dict:
             "ruta_planeada": nueva_ruta,
         }
 
-    from llm_router import _global_router
+    # Injected by the caller (LLMRouter.perform_memory_search). Importing a router global here does not work:
+    # llm_router runs as __main__, so `import llm_router` would load a second module copy whose global is None.
+    memory_search = (config or {}).get("configurable", {}).get("memory_search")
 
-    if _global_router is not None:
+    if memory_search is not None:
         current_emotion = _get_current_emotion()
         logger.info(f"Querying memory semantic search for: '{input_usuario}' with emotion_filter='{current_emotion}'")
 
-        # Modify the query or use metadata filtering in the router
-        results = await _global_router.perform_memory_search(request_id, input_usuario, emotion_filter=current_emotion)
+        results = await memory_search(request_id, input_usuario, emotion_filter=current_emotion)
         formatted_results = []
         if results:
             for r in results:
@@ -394,9 +397,16 @@ workflow.add_edge("nodo_respuesta", END)
 orquestador_graph = workflow.compile()
 
 
-async def ejecutar_orquestador_graph(input_usuario: str, request_id: str, mock: bool = False) -> str:
+async def ejecutar_orquestador_graph(
+    input_usuario: str,
+    request_id: str,
+    mock: bool = False,
+    memory_search: Callable[..., Awaitable[list]] | None = None,
+) -> str:
     """
     Executes the compiled StateGraph with the given input and returns the final answer.
+
+    memory_search: async (request_id, query, emotion_filter=...) -> list of memory hits, used by nodo_memoria.
     """
     initial_state = {
         "input_usuario": input_usuario,
@@ -407,7 +417,9 @@ async def ejecutar_orquestador_graph(input_usuario: str, request_id: str, mock: 
         "mock": mock,
     }
     try:
-        final_state = await orquestador_graph.ainvoke(initial_state)
+        final_state = await orquestador_graph.ainvoke(
+            initial_state, config={"configurable": {"memory_search": memory_search}}
+        )
         return final_state.get("respuesta_final", "Error: No se produjo respuesta final.")
     except Exception as e:
         logger.error(f"Error executing StateGraph: {e}")
