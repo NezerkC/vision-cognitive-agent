@@ -1,28 +1,59 @@
-import shutil
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import cognitivo.cuadernos_manager as cm
 from cognitivo.cuadernos_manager import CuadernosManager
+from memoria.lancedb_manager import BGEM3Embedder
 
 
 @pytest.fixture
-def cuadernos_mgr(monkeypatch):
-    c_dir = Path(__file__).parent.parent / "temp_test_cuadernos"
-    if c_dir.exists():
-        shutil.rmtree(c_dir, ignore_errors=True)
-    c_dir.mkdir(parents=True, exist_ok=True)
+def cuadernos_mgr(monkeypatch, tmp_path):
+    monkeypatch.setattr("cognitivo.cuadernos_manager.CUADERNOS_DIR", str(tmp_path))
+    monkeypatch.setattr("cognitivo.cuadernos_manager.METADATA_FILE", str(tmp_path / "notebooks.json"))
+    monkeypatch.setattr("cognitivo.cuadernos_manager.SOURCES_DIR", str(tmp_path / "sources"))
+    monkeypatch.setattr("cognitivo.cuadernos_manager.LANCE_DB_PATH", str(tmp_path / "lancedb_cuadernos"))
+    # Deterministic offline embeddings: unit tests must not load the multi-GB BGE-M3 model.
+    monkeypatch.setattr(
+        "cognitivo.cuadernos_manager.BGEM3Embedder", lambda *args, **kwargs: BGEM3Embedder(force_mock=True)
+    )
 
-    monkeypatch.setattr("cognitivo.cuadernos_manager.CUADERNOS_DIR", str(c_dir))
-    monkeypatch.setattr("cognitivo.cuadernos_manager.METADATA_FILE", str(c_dir / "notebooks.json"))
-    monkeypatch.setattr("cognitivo.cuadernos_manager.SOURCES_DIR", str(c_dir / "sources"))
-    monkeypatch.setattr("cognitivo.cuadernos_manager.LANCE_DB_PATH", str(c_dir / "lancedb_cuadernos"))
+    return CuadernosManager()
 
-    mgr = CuadernosManager()
-    yield mgr
 
-    shutil.rmtree(c_dir, ignore_errors=True)
+@pytest.fixture
+def fake_web_search(monkeypatch):
+    """Offline WebSearchEngine returning snippets about quantum entanglement."""
+
+    class FakeSearchEngine:
+        async def buscar(self, query, max_results=5):
+            results = [
+                SimpleNamespace(
+                    title=f"Fuente {idx}",
+                    url=f"https://fuente{idx}.example/articulo",
+                    snippet=f"Hallazgo {idx}: el entrelazamiento cuántico conecta partículas distantes.",
+                )
+                for idx in range(max_results)
+            ]
+            return SimpleNamespace(status="success", results=results)
+
+    monkeypatch.setattr("cognitivo.skills.websearch_tool.WebSearchEngine", FakeSearchEngine)
+
+
+@pytest.fixture
+def fake_llm(monkeypatch):
+    """Offline litellm.completion that records the messages of every call."""
+    calls = []
+
+    def fake_completion(**kwargs):
+        calls.append(kwargs["messages"])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Síntesis generada"))])
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr("litellm.completion", fake_completion)
+    return calls
 
 
 def test_create_and_list_cuadernos(cuadernos_mgr):
@@ -54,7 +85,7 @@ async def test_add_fuente_and_process(cuadernos_mgr):
 
 
 @pytest.mark.asyncio
-async def test_investigar_y_crear_cuaderno(cuadernos_mgr, monkeypatch):
+async def test_investigar_y_crear_cuaderno(cuadernos_mgr, monkeypatch, fake_web_search, fake_llm):
     original_research = cuadernos_mgr._run_auto_research
 
     async def mock_auto_research(*args, **kwargs):
@@ -70,7 +101,49 @@ async def test_investigar_y_crear_cuaderno(cuadernos_mgr, monkeypatch):
     notebooks = cuadernos_mgr.list_cuadernos()
     assert len(notebooks) == 1
     assert len(notebooks[0]["sources"]) == 1
+    assert notebooks[0]["sources"][0]["status"] == "ready"
     assert len(notebooks[0]["notes"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_auto_research_synthesizes_after_source_is_indexed(cuadernos_mgr, monkeypatch, fake_web_search, fake_llm):
+    nb = cuadernos_mgr.create_cuaderno("Investigación: Física Cuántica", "Auto")
+    original_index = cuadernos_mgr._process_and_index_source
+
+    async def slow_index(*args, **kwargs):
+        # Real BGE-M3 indexing on CPU takes seconds, far beyond any fixed grace period.
+        await asyncio.sleep(0.5)
+        await original_index(*args, **kwargs)
+
+    monkeypatch.setattr(cuadernos_mgr, "_process_and_index_source", slow_index)
+
+    await cuadernos_mgr._run_auto_research(nb["id"], "Física Cuántica")
+
+    assert len(fake_llm) == 2
+    for messages in fake_llm:
+        system_prompt = messages[0]["content"]
+        assert "entrelazamiento cuántico" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_generar_sintesis_keeps_metadata_written_during_llm_call(cuadernos_mgr, monkeypatch):
+    nb = cuadernos_mgr.create_cuaderno("Cuaderno Concurrente", "Prueba")
+
+    def completion_while_indexing_finishes(**kwargs):
+        # Background indexing persists its metadata while the LLM call is in flight.
+        metadata = cuadernos_mgr._load_metadata()
+        metadata[nb["id"]]["sources"].append({"id": "src1", "filename": "doc.txt", "status": "ready", "chunks": 1})
+        cuadernos_mgr._save_metadata(metadata)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Resumen"))])
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr("litellm.completion", completion_while_indexing_finishes)
+
+    await cuadernos_mgr.generar_sintesis(nb["id"], "resumen")
+
+    stored = cuadernos_mgr.list_cuadernos()[0]
+    assert [src["id"] for src in stored["sources"]] == ["src1"]
+    assert len(stored["notes"]) == 1
 
 
 def test_delete_cuaderno(cuadernos_mgr):

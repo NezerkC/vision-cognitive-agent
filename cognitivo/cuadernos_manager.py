@@ -145,7 +145,12 @@ class CuadernosManager:
         return True
 
     async def add_fuente(
-        self, notebook_id: str, filename: str, file_content: bytes, description: str | None = None
+        self,
+        notebook_id: str,
+        filename: str,
+        file_content: bytes,
+        description: str | None = None,
+        index_in_background: bool = True,
     ) -> dict:
         metadata = self._load_metadata()
         if notebook_id not in metadata:
@@ -170,8 +175,10 @@ class CuadernosManager:
         metadata[notebook_id]["sources"].append(source_entry)
         self._save_metadata(metadata)
 
-        # Process document asynchronously / in background
-        asyncio.create_task(self._process_and_index_source(notebook_id, source_id, filename, file_path))
+        if index_in_background:
+            asyncio.create_task(self._process_and_index_source(notebook_id, source_id, filename, file_path))
+        else:
+            await self._process_and_index_source(notebook_id, source_id, filename, file_path)
 
         return source_entry
 
@@ -289,10 +296,10 @@ class CuadernosManager:
                 safe_filename,
                 combined_content.encode("utf-8"),
                 description=f"Hallazgos de investigación sobre {tema}",
+                index_in_background=False,
             )
-            await asyncio.sleep(0.2)
 
-            # Auto generate syntheses
+            # Auto generate syntheses (the source is already indexed, so they get its context)
             await self.generar_sintesis(notebook_id, "resumen", provider_api_key)
             await self.generar_sintesis(notebook_id, "guia_estudio", provider_api_key)
 
@@ -368,6 +375,10 @@ class CuadernosManager:
             "created_at": datetime.now().isoformat(),
         }
 
+        # Reload: the snapshot taken before the LLM call may be stale (e.g. background indexing saved meanwhile).
+        metadata = self._load_metadata()
+        if notebook_id not in metadata:
+            raise ValueError(f"Cuaderno {notebook_id} no existe.")
         metadata[notebook_id]["notes"].append(note_entry)
         self._save_metadata(metadata)
         return note_entry
