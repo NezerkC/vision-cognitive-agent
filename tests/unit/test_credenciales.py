@@ -6,7 +6,8 @@ from sentidos.credenciales import CREDENTIAL_KEYS, guardar_credencial, leer_cred
 
 def test_leer_masks_secret_values(tmp_path):
     env = tmp_path / ".env"
-    env.write_text("OPENROUTER_API_KEY=sk-or-v1-<REDACTED>\nTAVILY_API_KEY=\n", encoding="utf-8")
+    # Deliberately not key-shaped, so secret scanners and history redaction leave the fixture alone.
+    env.write_text("OPENROUTER_API_KEY=test-openrouter-key-1234567890\nTAVILY_API_KEY=\n", encoding="utf-8")
 
     creds = leer_credenciales_enmascaradas(env)
 
