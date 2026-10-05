@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 
 import litellm
@@ -24,6 +25,22 @@ EFFORT_LEVELS_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "effort_levels.json"
 )
 EMOTIONS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "emotions.json")
+
+_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Z][A-Z0-9_]*)")
+
+
+def resolve_api_key(value: str | None) -> str | None:
+    """Resolve a model's `api_key` config value.
+
+    Accepts an env var reference (`${OPENROUTER_API_KEY}` or `OPENROUTER_API_KEY`) or, discouraged, a raw key.
+    An unresolved reference returns None so the placeholder text is never sent as a key.
+    """
+    if not value:
+        return None
+    match = _ENV_REFERENCE.fullmatch(value)
+    if match:
+        return os.environ.get(match.group(1) or match.group(2)) or None
+    return value
 
 
 class LLMRouter:
@@ -117,8 +134,7 @@ class LLMRouter:
                 logger.warning(f"Failed to verify local model '{model_name}' presence.")
 
         api_base = model_cfg.get("api_base")
-        api_key_env = model_cfg.get("api_key")
-        api_key = os.environ.get(api_key_env, api_key_env) if api_key_env else None
+        api_key = resolve_api_key(model_cfg.get("api_key"))
 
         logger.info(
             f"Attempting LLM call using model: {model_name} (Effort: {effort}, Temp: {temp}, MaxTokens: {max_tokens})"
