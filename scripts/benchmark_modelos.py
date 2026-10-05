@@ -13,6 +13,7 @@ BENCHMARK_PATH = os.path.join(PROJECT_ROOT, "config", "model_benchmarks.json")
 # Standard test prompt
 TEST_PROMPT = "Responde únicamente con la palabra 'OK'."
 
+
 async def benchmark_model(model_id: str) -> dict:
     print(f"\n[RUN] Iniciando prueba para: {model_id}...")
     start_time = time.time()
@@ -24,24 +25,17 @@ async def benchmark_model(model_id: str) -> dict:
             model=f"ollama/{model_id}",
             messages=[{"role": "user", "content": TEST_PROMPT}],
             api_base="http://localhost:11434",
-            timeout=180.0  # 3 minutes maximum for loading
+            timeout=180.0,  # 3 minutes maximum for loading
         )
         elapsed = time.time() - start_time
         reply = response.choices[0].message.content.strip()
         print(f"[OK] Completado en {elapsed:.2f} segundos. Respuesta: '{reply}'")
-        return {
-            "status": "success",
-            "time_seconds": elapsed,
-            "response": reply
-        }
+        return {"status": "success", "time_seconds": elapsed, "response": reply}
     except Exception as e:
         elapsed = time.time() - start_time
         print(f"[FAIL] Fallo tras {elapsed:.2f} segundos. Error: {e}")
-        return {
-            "status": "error",
-            "time_seconds": elapsed,
-            "error": str(e)
-        }
+        return {"status": "error", "time_seconds": elapsed, "error": str(e)}
+
 
 async def main():
     print("=" * 60)
@@ -67,7 +61,7 @@ async def main():
     results = {}
 
     for idx, model in enumerate(models):
-        print(f"\n[Modelo {idx+1}/{len(models)}]")
+        print(f"\n[Modelo {idx + 1}/{len(models)}]")
         # Warm up/Load and generate
         res = await benchmark_model(model)
         results[model] = res
@@ -78,8 +72,7 @@ async def main():
     print("=" * 60)
 
     sorted_results = sorted(
-        [(k, v) for k, v in results.items() if v["status"] == "success"],
-        key=lambda x: x[1]["time_seconds"]
+        [(k, v) for k, v in results.items() if v["status"] == "success"], key=lambda x: x[1]["time_seconds"]
     )
 
     for rank, (name, metrics) in enumerate(sorted_results):
@@ -92,6 +85,7 @@ async def main():
 
     print(f"\n[SAVE] Benchmarks guardados en: {BENCHMARK_PATH}")
     print("=" * 60)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

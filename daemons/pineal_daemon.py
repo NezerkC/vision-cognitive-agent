@@ -184,16 +184,21 @@ class PinealDaemon:
                 reader, writer = await asyncio.open_connection(self.host, self.port)
                 logger.info("Connected to event broker.")
 
-                subscribe_msg = json.dumps({
-                    "action": "subscribe",
-                    "topics": [
-                        "canal.sistema.contexto_actual",
-                        "canal.sensorial.audio.transcripcion",
-                        "canal.sensorial.vision",
-                        "canal.cognitivo.entrada",
-                        "system",
-                    ],
-                }) + "\n"
+                subscribe_msg = (
+                    json.dumps(
+                        {
+                            "action": "subscribe",
+                            "topics": [
+                                "canal.sistema.contexto_actual",
+                                "canal.sensorial.audio.transcripcion",
+                                "canal.sensorial.vision",
+                                "canal.cognitivo.entrada",
+                                "system",
+                            ],
+                        }
+                    )
+                    + "\n"
+                )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
 
@@ -218,7 +223,7 @@ class PinealDaemon:
                         if topic == "system" and data.get("action") == "force_sleep":
                             await self.trigger_sleep_cycle(writer)
 
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         # Check idle threshold
                         elapsed_idle = time.time() - self.last_activity_timestamp
                         if elapsed_idle >= self.idle_threshold and not self.is_sleeping:
