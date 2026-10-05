@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 
 import lancedb
@@ -20,6 +21,21 @@ logging.basicConfig(
 logger = logging.getLogger("LanceDBManager")
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "memory_tiering.yaml")
+
+
+def sql_string_literal(value: str) -> str:
+    """Quote a value as a SQL string literal for LanceDB filters (they accept no bound parameters)."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def emotion_where_clause(emotion_filter: str | None) -> str | None:
+    """Build the metadata LIKE filter for an emotion, or None when there is nothing safe to filter by."""
+    if not emotion_filter or emotion_filter == "neutral":
+        return None
+    if not re.fullmatch(r"[\w-]+", emotion_filter):
+        logger.warning(f"Ignoring invalid emotion filter: {emotion_filter!r}")
+        return None
+    return f"metadata LIKE '%{emotion_filter}%'"
 
 
 class BGEM3Embedder:
@@ -293,6 +309,7 @@ class LanceDBManager:
 
         loop = asyncio.get_running_loop()
         vector = await loop.run_in_executor(None, self.embedder.embed_query, query)
+        emotion_clause = emotion_where_clause(emotion_filter)
 
         # 1. Retrieve Vector Dense Search candidates from Hot & Cold tables
         vec_candidates = []
@@ -301,8 +318,8 @@ class LanceDBManager:
                 continue
             try:
                 q = tbl.search(vector).limit(top_n * 3)
-                if emotion_filter and emotion_filter != "neutral":
-                    q = q.where(f"metadata LIKE '%{emotion_filter}%'")
+                if emotion_clause:
+                    q = q.where(emotion_clause)
                 vec_candidates.extend(q.to_list())
             except Exception as e:
                 logger.debug(f"Dense vector query notice: {e}")
@@ -314,8 +331,8 @@ class LanceDBManager:
                 continue
             try:
                 q = tbl.search(query, query_type="fts").limit(top_n * 3)
-                if emotion_filter and emotion_filter != "neutral":
-                    q = q.where(f"metadata LIKE '%{emotion_filter}%'")
+                if emotion_clause:
+                    q = q.where(emotion_clause)
                 fts_candidates.extend(q.to_list())
             except Exception as e:
                 logger.debug(f"FTS search notice (Tantivy might be missing): {e}")

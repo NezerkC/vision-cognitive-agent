@@ -234,3 +234,24 @@ async def test_chat_cuaderno_stream_busqueda_profunda(cuadernos_mgr, monkeypatch
     assert report_note["type"] == "informe_profundo"
     assert "Informe de Investigación Profunda" in report_note["content"]
     assert "Total de Fuentes Consultadas**: 22" in report_note["content"]
+
+
+@pytest.mark.asyncio
+async def test_query_context_ignores_quote_injection_in_notebook_id(cuadernos_mgr):
+    nb = cuadernos_mgr.create_cuaderno("Privado", "Fuente ajena")
+    await cuadernos_mgr.add_fuente(
+        nb["id"], "secreto.txt", b"Contenido confidencial del cuaderno privado.", index_in_background=False
+    )
+
+    assert cuadernos_mgr.query_cuaderno_context("nope' OR '1'='1", "contenido confidencial") == []
+
+
+@pytest.mark.asyncio
+async def test_add_fuente_keeps_uploaded_file_inside_notebook_dir(cuadernos_mgr, tmp_path):
+    nb = cuadernos_mgr.create_cuaderno("Uploads", "Path traversal")
+
+    fuente = await cuadernos_mgr.add_fuente(nb["id"], "../../escape.txt", b"payload", index_in_background=False)
+
+    assert fuente["filename"] == "escape.txt"
+    assert not (tmp_path / "escape.txt").exists()
+    assert (tmp_path / "sources" / nb["id"] / "escape.txt").read_bytes() == b"payload"

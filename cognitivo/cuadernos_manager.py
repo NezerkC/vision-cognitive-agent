@@ -14,7 +14,7 @@ from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoa
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memoria.lancedb_manager import BGEM3Embedder
+from memoria.lancedb_manager import BGEM3Embedder, sql_string_literal
 
 logger = logging.getLogger("CuadernosManager")
 logger.setLevel(logging.INFO)
@@ -130,7 +130,7 @@ class CuadernosManager:
 
         # Delete LanceDB chunks for this notebook
         try:
-            self.table.delete(f"notebook_id = '{notebook_id}'")
+            self.table.delete(f"notebook_id = {sql_string_literal(notebook_id)}")
         except Exception as e:
             logger.warning(f"Failed to delete LanceDB chunks for notebook {notebook_id}: {e}")
 
@@ -155,6 +155,11 @@ class CuadernosManager:
         metadata = self._load_metadata()
         if notebook_id not in metadata:
             raise ValueError(f"Cuaderno {notebook_id} no existe.")
+
+        # Uploaded names are untrusted: keep only the base name so writes stay inside the notebook dir.
+        filename = os.path.basename(filename.replace("\\", "/"))
+        if filename in ("", ".", ".."):
+            raise ValueError("Nombre de archivo inválido.")
 
         n_sources_dir = os.path.join(CUADERNOS_DIR, "sources", notebook_id)
         os.makedirs(n_sources_dir, exist_ok=True)
@@ -315,7 +320,12 @@ class CuadernosManager:
             pass
         query_vec = self.embedder.embed_query(query)
         try:
-            results = self.table.search(query_vec).where(f"notebook_id = '{notebook_id}'").limit(top_k).to_list()
+            results = (
+                self.table.search(query_vec)
+                .where(f"notebook_id = {sql_string_literal(notebook_id)}")
+                .limit(top_k)
+                .to_list()
+            )
             return results
         except Exception as e:
             logger.error(f"Error realizando búsqueda RAG en cuaderno {notebook_id}: {e}")
