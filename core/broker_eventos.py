@@ -118,11 +118,19 @@ class EventBroker:
                 if not line:
                     break
 
-                try:
-                    message = json.loads(line.decode("utf-8").strip())
-                except json.JSONDecodeError:
-                    logger.error("Received malformed JSON from client.")
+                text = line.decode("utf-8", errors="replace").strip()
+                if not text:
                     continue
+                try:
+                    message = json.loads(text)
+                except json.JSONDecodeError:
+                    message = None
+                if not isinstance(message, dict):
+                    # Clients speak JSON lines only. Dropping the connection (instead of skipping the line) stops
+                    # cross-protocol attacks: a web page can POST to this port, and after its HTTP header lines
+                    # were skipped, its JSON body would have been processed as a legitimate event.
+                    logger.warning(f"Non-JSON-object input from {client_address}; closing connection.")
+                    break
 
                 action = message.get("action")
                 if action == "subscribe":
