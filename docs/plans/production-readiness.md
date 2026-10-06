@@ -3,22 +3,23 @@
 Goal: make Vision OS and Vision Studio fully functional with no fake behavior in production code paths.
 Source: read-only audits of 2026-10-06 (backend mocks, notebooks/RAG, Vision Studio file manager).
 
-This file is the single source of truth for the work loop. Each loop iteration completes ONE task.
+This file is the single source of truth for the work loop. Since 2026-10-06 phases 1–4 run as parallel streams (ultracode): one stream per phase, each in its own worktree and branch, one task per agent run, tasks in order within a stream.
 
 ## Environment
 
-- Worktree: `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.claude/worktrees/production-readiness`
-- Python: `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.venv/Scripts/python.exe` (run it from the worktree root so the worktree code is imported)
-- Frontend: `vision_studio/` (run `npm ci` once in the worktree before the first frontend task)
-- Branches are chained; each phase branches from the previous phase branch:
+- Worktrees live under `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.claude/worktrees/` (table below).
+- Python: `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.venv/Scripts/python.exe`, shared by every stream (run it from the worktree root so the worktree code is imported).
+- Frontend: `vision_studio/` (run `npm ci` once in a worktree before its first frontend task).
+- Rust: reuse the phase 1 build cache with `CARGO_TARGET_DIR=D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.claude/worktrees/production-readiness/vision_studio/src-tauri/target`.
+- Branches are chained for review; phases 2–4 started from the phase 1 branch at the same commit and are developed in parallel:
 
-| Phase | Branch | PR base |
-|---|---|---|
-| 0 | `fix/security-hardening` | `main` |
-| 1 | `fix/remove-production-mocks` | `fix/security-hardening` |
-| 2 | `feat/notebooks-production` | `fix/remove-production-mocks` |
-| 3 | `feat/studio-file-manager` | `feat/notebooks-production` |
-| 4 | `feat/imagination-dreams` | `feat/studio-file-manager` |
+| Phase | Branch | Worktree | PR base |
+|---|---|---|---|
+| 0 | `fix/security-hardening` | — | `main` |
+| 1 | `fix/remove-production-mocks` | `production-readiness` | `fix/security-hardening` |
+| 2 | `feat/notebooks-production` | `notebooks` | `fix/remove-production-mocks` |
+| 3 | `feat/studio-file-manager` | `file-manager` | `feat/notebooks-production` |
+| 4 | `feat/imagination-dreams` | `imagination` | `feat/studio-file-manager` |
 
 ## Rules
 
@@ -29,8 +30,9 @@ This file is the single source of truth for the work loop. Each loop iteration c
 5. Push with `git push -u origin <branch>`.
 6. Never: merge PRs, push to `main`, force-push, use `--no-verify`, delete data outside the repository, weaken security checks, download files larger than 100 MB, or add credentials.
 7. If a task needs a human (a decision, a credential, a large model download, hardware validation), mark it `[!]`, record the reason under Blockers, and continue with the next task.
-8. When every task in a phase is `[x]` or `[!]`: push, open the phase PR (not draft) with `gh pr create --base <PR base>`, record the URL under Log, and create the next phase branch from the current one.
+8. When every task in a phase is `[x]` or `[!]`: merge the PR base branch into the phase branch (a merge commit, never a rebase), push, open the phase PR (not draft) with `gh pr create --base <PR base>`, and record the URL under that phase's Log section.
 9. When every phase is finished: write a final summary under Log and stop the loop.
+10. Parallel streams: a task only touches its own phase's checkboxes, Blockers section and Log section, so branches merge without conflicts. Never edit another phase's lines. Run every command against your own worktree (absolute paths or `git -C`). Another stream may be running tests or `pip` at the same time: if `pip` fails on a locked file, wait and retry.
 
 ## Defaulted decisions
 
@@ -104,11 +106,21 @@ This file is the single source of truth for the work loop. Each loop iteration c
 
 ## Blockers
 
+### Phase 1
+
 - Human step after merging phase 1: run `python -m memoria.reindex` in the main checkout. Its memory stores have no embedder record, likely hold hash vectors, and older unit tests wrote test rows into the real `memoria_activa`.
+
+### Phase 2
+
+### Phase 3
+
+### Phase 4
 
 ## Log
 
-(one line per completed task: `<task id> <summary>`; the task's commit is the one that adds the line)
+(one line per completed task, under its phase: `<task id> <summary>`; the task's commit is the one that adds the line)
+
+### Phases 0 and 1
 
 - 0.1 Notebook ids are validated against metadata and confined to `SOURCES_DIR` before any filesystem write; unknown notebooks return 404 from the chat, upload and delete endpoints.
 - 0.2 Gateway uploads (notebook sources, `/api/memoria/aprender`, `/upload_sensorial`) are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES` (default 50 MB).
@@ -129,3 +141,11 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - 1.10 `/api/memoria` reads the real columns with `table_names()` (it used non-existent columns and `list_tables()`, so it returned nothing or zeros) and returns W and metadata; the web HUD shows an empty graph instead of sample nodes. The dataset loader and the learning endpoint save through the memory schema (`temperatura_z` made every dataset save fail). `handle_guardar` returns whether it saved, and an empty cold table no longer silently redirects cold memories to the hot tier.
 - 1.11 `CerebeloMemoria4D.guardar_recuerdo` returns `status: error` when the store did not save (it always reported success). The in-process orchestrator tracks each service's status, uptime, restarts and last error and writes `config/.health_status.json` every 3 s like the watchdog, so `/api/health` lists services in the default runtime; `/api/health` adds `stale: true` when the file is missing or older than 15 s.
 - Phase 1 PR (opened early at the user's request; 1.12 and 1.13 land on the same branch): https://github.com/NezerkC/vision-cognitive-agent/pull/3
+
+### Phase 2
+
+### Phase 3
+
+### Phase 4
+
+### Final summary
