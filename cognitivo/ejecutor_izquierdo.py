@@ -16,10 +16,15 @@ logger = logging.getLogger("EjecutorIzquierdo")
 
 # Attempt to load pyautogui safely (on a headless Linux it raises display errors, not only ImportError)
 pyautogui = None
+PYAUTOGUI_ERROR = ""
 try:
     import pyautogui
 except Exception as e:
-    logger.warning(f"pyautogui unavailable ({e}). UI automation will run in simulated/mock mode.")
+    PYAUTOGUI_ERROR = str(e) or type(e).__name__
+    logger.warning(f"pyautogui unavailable ({e}). UI actions will be reported as not executed.")
+
+# Keyboard/mouse commands execute_control_ui understands, besides "escribir:<text>".
+UI_COMMANDS = {"win", "enter", "click"}
 
 ACTION_TOPIC = "canal.ejecucion.accion"
 APPROVAL_TOPIC = "canal.ejecucion.aprobacion"
@@ -65,7 +70,7 @@ class EjecutorIzquierdo:
         self.host = host
         self.port = port
         self.is_mock = is_mock
-        # Without pyautogui (e.g. a headless host) UI automation can only be simulated; shell commands still run.
+        # Without pyautogui (e.g. a headless host) UI actions fail with an explicit error; shell commands still run.
         self.ui_available = pyautogui is not None
         self._clock = clock
         self.pending: dict[str, tuple[dict, float]] = {}
@@ -85,13 +90,22 @@ class EjecutorIzquierdo:
         print(f"\033[91mComandos UI recibidos: {commands}\033[0m")
         print("\033[93m" + "=" * 80 + "\033[0m")
 
-        if self.is_mock or not self.ui_available:
-            logger.info("[MOCK MODE] Simulating UI actions without physical execution.")
-            return {"status": "success", "detail": "UI commands executed (Simulated)"}
+        if self.is_mock:
+            logger.info("[MOCK MODE] UI actions not executed.")
+            return {
+                "status": "error",
+                "detail": "Not executed: ejecutor_izquierdo runs in mock mode (config/arranque.yaml).",
+            }
+        if not self.ui_available:
+            return {"status": "error", "detail": f"Not executed: UI automation needs pyautogui ({PYAUTOGUI_ERROR})."}
+
+        commands = [cmd.strip() for cmd in commands]
+        unknown = [cmd for cmd in commands if cmd not in UI_COMMANDS and not cmd.startswith("escribir:")]
+        if unknown:
+            return {"status": "error", "detail": f"Not executed: unknown UI commands {unknown}."}
 
         try:
             for cmd in commands:
-                cmd = cmd.strip()
                 if cmd == "win":
                     pyautogui.press("win")
                     await asyncio.sleep(0.5)
@@ -105,8 +119,6 @@ class EjecutorIzquierdo:
                     text_to_write = cmd.split("escribir:", 1)[1].strip()
                     pyautogui.write(text_to_write, interval=0.05)
                     await asyncio.sleep(0.5)
-                else:
-                    logger.warning(f"Comando UI no reconocido: '{cmd}'")
             return {"status": "success", "detail": f"Executed UI actions: {commands}"}
         except Exception as e:
             logger.error(f"Error executing UI actions: {e}")
@@ -118,8 +130,11 @@ class EjecutorIzquierdo:
         """
         logger.info(f"Running system command: {command_str}")
         if self.is_mock:
-            logger.info("[MOCK MODE] Simulating shell command without execution.")
-            return {"status": "success", "exit_code": 0, "stdout": "", "stderr": "", "detail": "Simulated (mock mode)"}
+            logger.info("[MOCK MODE] Shell command not executed.")
+            return {
+                "status": "error",
+                "detail": "Not executed: ejecutor_izquierdo runs in mock mode (config/arranque.yaml).",
+            }
         try:
             # We use shell execution to easily support cross-platform scripts. On POSIX the shell gets its own
             # process group so a timeout can kill everything it spawned.
