@@ -296,7 +296,12 @@ class LanceDBManager:
                 await self.publish_error(writer, f"Guardar failed: {str(e)}")
 
     async def buscar_hibrido_rrf_impl(
-        self, query: str, top_n: int = 5, k_rrf: int = 60, emotion_filter: str | None = None
+        self,
+        query: str,
+        top_n: int = 5,
+        k_rrf: int = 60,
+        emotion_filter: str | None = None,
+        vector: list[float] | None = None,
     ) -> list[dict]:
         """
         Executes Reciprocal Rank Fusion (RRF k=60) Hybrid Search combining dense vector similarity
@@ -308,7 +313,8 @@ class LanceDBManager:
             return []
 
         loop = asyncio.get_running_loop()
-        vector = await loop.run_in_executor(None, self.embedder.embed_query, query)
+        if vector is None and self.embedder is not None:
+            vector = await loop.run_in_executor(None, self.embedder.embed_query, query)
         emotion_clause = emotion_where_clause(emotion_filter)
 
         # 1. Retrieve Vector Dense Search candidates from Hot & Cold tables
@@ -433,6 +439,11 @@ class LanceDBManager:
                 },
             }
 
+        loop = asyncio.get_running_loop()
+        query_vector = None
+        if self.embedder is not None:
+            query_vector = await loop.run_in_executor(None, self.embedder.embed_query, query)
+
         current_top_k = top_k_inicial
         current_umbral = umbral_similitud_inicial
         intentos = 0
@@ -440,7 +451,7 @@ class LanceDBManager:
         for intento in range(1, max_intentos + 1):
             intentos = intento
             candidatos = await self.buscar_hibrido_rrf_impl(
-                query=query, top_n=current_top_k, emotion_filter=emotion_filter
+                query=query, top_n=current_top_k, emotion_filter=emotion_filter, vector=query_vector
             )
 
             filtrados = [c for c in candidatos if c.get("final_score", 0.0) >= current_umbral]

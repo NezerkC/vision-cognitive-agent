@@ -165,7 +165,10 @@ class OidoParietal:
         """
         try:
             while reader and not reader.at_eof():
-                line = await asyncio.wait_for(reader.readline(), timeout=60.0)
+                try:
+                    line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+                except TimeoutError:
+                    continue
                 if not line:
                     break
                 try:
@@ -211,8 +214,6 @@ class OidoParietal:
                                 logger.info(f"🎙️ Oído Parietal: Estado mock actualizado a {self.force_mock}")
                         except Exception as ex:
                             logger.warning(f"Failed to reload mock settings in Oido: {ex}")
-        except TimeoutError:
-            pass  # No message within timeout — reader_daemon keeps running
         except Exception as e:
             logger.error(f"Reader daemon error: {e}")
 
@@ -249,6 +250,10 @@ class OidoParietal:
 
                     loop = asyncio.get_running_loop()
 
+                    def listen_sync():
+                        with mic as source:
+                            return r.listen(source, timeout=1.0, phrase_time_limit=5.0)
+
                     while True:
                         # If paused, skip listening and just wait
                         if self.pausado:
@@ -258,9 +263,7 @@ class OidoParietal:
                         logger.info("Listening for voice input...")
                         try:
                             # Use timeout so pause flag can be checked between listen attempts
-                            audio = await loop.run_in_executor(
-                                None, lambda: r.listen(source, timeout=1.0, phrase_time_limit=5.0)
-                            )
+                            audio = await loop.run_in_executor(self.executor, listen_sync)
                         except sr.WaitTimeoutError:
                             # No speech detected within timeout — just loop
                             continue

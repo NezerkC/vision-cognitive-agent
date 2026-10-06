@@ -1,0 +1,216 @@
+"""
+Unified Brainstem Orchestrator for Visión OS (Clean Hexagonal Architecture).
+Runs all neural services inside a single supervised asyncio runtime using the
+high-performance AsyncInMemoryEventBus and a backward-compatible TCP socket bridge.
+"""
+
+import asyncio
+import logging
+import os
+import signal
+import sys
+from typing import Any
+
+import yaml
+
+from cognitivo.contexto_derecho import ContextoDerecho
+from cognitivo.ejecutor_izquierdo import EjecutorIzquierdo
+
+# Service Imports
+from cognitivo.llm_router import LLMRouter
+from cognitivo.protocolo_intriga import ProtocoloIntriga
+from cognitivo.web_search import WebSearchDaemon
+from core.adapters.event_bus_inmemory import AsyncInMemoryEventBus
+from core.adapters.event_bus_tcp_bridge import TCPEventBusBridge
+from core.amigdala import Amigdala
+from daemons.pineal_daemon import PinealDaemon
+from memoria.hipocampo import Hipocampo
+from memoria.lancedb_manager import LanceDBManager
+from sentidos.habla_parietal import HablaParietal
+from sentidos.imaginacion_occipital import ImaginacionOccipital
+from sentidos.oido_parietal import OidoParietal
+from sentidos.vision_parietal import VisionParietal
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] BrainstemOrchestrator: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger("BrainstemOrchestrator")
+
+
+class BrainstemOrchestrator:
+    """
+    Master In-Process Orchestrator for Visión OS.
+    Runs all cognitive daemons concurrently on top of the in-memory event bus
+    with an optional TCP bridge for external clients.
+    """
+
+    def __init__(self, use_mock: bool = False, enable_tcp_bridge: bool = True, tcp_port: int = 5000):
+        self.use_mock = use_mock
+        self.enable_tcp_bridge = enable_tcp_bridge
+        self.tcp_port = tcp_port
+        self.event_bus = AsyncInMemoryEventBus()
+        self.tcp_bridge: TCPEventBusBridge | None = None
+        self.tasks: list[asyncio.Task] = []
+        self.should_run = True
+
+        # Project directory resolution
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.project_root = os.path.dirname(script_dir)
+
+        # Load startup settings
+        self.modos_mock: dict[str, bool] = {}
+        arranque_path = os.path.join(self.project_root, "config", "arranque.yaml")
+        if os.path.exists(arranque_path):
+            try:
+                with open(arranque_path, encoding="utf-8") as f:
+                    cfg = yaml.safe_load(f)
+                    if cfg and "modos_mock" in cfg:
+                        self.modos_mock = cfg["modos_mock"]
+                logger.info(f"Loaded startup configuration: {self.modos_mock}")
+            except Exception as e:
+                logger.error(f"Failed to load config/arranque.yaml: {e}")
+
+    def is_service_mock(self, service_key: str) -> bool:
+        """Determines if a service should run in mock mode."""
+        if self.use_mock:
+            return True
+        return self.modos_mock.get(service_key, True)
+
+    async def start(self) -> None:
+        """
+        Launches all neural services and bridges inside the single asyncio event loop.
+        """
+        logger.info("============================================================")
+        logger.info("🧠 Visión OS — Iniciando Orquestador Cerebral Unificado")
+        logger.info("============================================================")
+
+        # 1. Start TCP Bridge on port 5000 for external/legacy tools
+        if self.enable_tcp_bridge:
+            self.tcp_bridge = TCPEventBusBridge(self.event_bus, host="127.0.0.1", port=self.tcp_port)
+            await self.tcp_bridge.start()
+            logger.info(f"✅ Bridge TCP activo en 127.0.0.1:{self.tcp_port}")
+
+        # 2. Wire In-Memory Service: Amígdala
+        amigdala = Amigdala(host="127.0.0.1", port=self.tcp_port)
+
+        async def amigdala_input_handler(topic: str, data: dict[str, Any]):
+            await amigdala.handle_cognitive_input(data, self.event_bus.publish)
+
+        async def amigdala_panic_handler(topic: str, data: dict[str, Any]):
+            await amigdala.trigger_panic_purge(event_bus=self.event_bus)
+
+        await self.event_bus.subscribe(["canal.cognitivo.entrada"], amigdala_input_handler)
+        await self.event_bus.subscribe(["canal.seguridad.panic"], amigdala_panic_handler)
+        logger.info("🛡️ Amígdala (Perímetro de Seguridad) enlazada en memoria.")
+
+        # 3. Wire In-Memory Service: LanceDB Memory Manager
+        lancedb_mock = self.is_service_mock("lancedb_manager")
+        lancedb_mgr = LanceDBManager(host="127.0.0.1", port=self.tcp_port)
+        lancedb_mgr.init_db(mock_embedder=lancedb_mock)
+
+        # 4. Wire Remaining Background Services via Managed Async Tasks
+        services_to_run = [
+            ("Router Frontal", LLMRouter(port=self.tcp_port).run()),
+            ("LanceDB Daemon", lancedb_mgr.run()),
+            ("Hipocampo", Hipocampo(port=self.tcp_port).run()),
+            (
+                "Visión Parietal",
+                VisionParietal(port=self.tcp_port, force_mock=self.is_service_mock("vision_parietal")).run(),
+            ),
+            ("Oído Parietal", OidoParietal(port=self.tcp_port, force_mock=self.is_service_mock("oido_parietal")).run()),
+            (
+                "Habla Parietal",
+                HablaParietal(port=self.tcp_port, force_mock=self.is_service_mock("habla_parietal")).run(),
+            ),
+            ("Contexto Derecho", ContextoDerecho(port=self.tcp_port).run()),
+            (
+                "Protocolo Intriga",
+                ProtocoloIntriga(port=self.tcp_port, is_mock=self.is_service_mock("protocolo_intriga")).run(),
+            ),
+            ("Web Search", WebSearchDaemon(port=self.tcp_port, is_mock=self.is_service_mock("web_search")).run()),
+            (
+                "Ejecutor Izquierdo",
+                EjecutorIzquierdo(port=self.tcp_port, is_mock=self.is_service_mock("ejecutor_izquierdo")).run(),
+            ),
+            (
+                "Imaginación Occipital",
+                ImaginacionOccipital(
+                    port=self.tcp_port, force_mock=self.is_service_mock("imaginacion_occipital")
+                ).run(),
+            ),
+            ("Pineal Daemon", PinealDaemon(port=self.tcp_port, is_mock=lancedb_mock).run()),
+        ]
+
+        for name, coro in services_to_run:
+            task = asyncio.create_task(self._supervise_coroutine(name, coro), name=f"Task_{name}")
+            self.tasks.append(task)
+
+        logger.info(f"✨ Todos los {len(self.tasks)} módulos neurales se ejecutan en un solo runtime Python.")
+
+        # Keep running until cancelled
+        try:
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            logger.info("BrainstemOrchestrator cancellation requested.")
+        finally:
+            await self.stop()
+
+    async def _supervise_coroutine(self, name: str, coro: Any) -> None:
+        """Runs a service coroutine with automatic restart supervision."""
+        while self.should_run:
+            try:
+                logger.info(f"[{name.upper()}] Iniciando servicio...")
+                await coro
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[{name.upper()}] Error en ejecución: {e}. Reiniciando en 3s...", exc_info=True)
+                await asyncio.sleep(3)
+
+    async def stop(self) -> None:
+        """Gracefully shuts down the orchestrator and all managed tasks."""
+        if not self.should_run:
+            return
+        logger.info("🛑 Deteniendo Orquestador Cerebral Unificado...")
+        self.should_run = False
+
+        for task in self.tasks:
+            if not task.done():
+                task.cancel()
+
+        if self.tcp_bridge:
+            await self.tcp_bridge.stop()
+
+        await self.event_bus.shutdown()
+        logger.info("👋 Visión OS detenido limpiamente.")
+
+
+async def main():
+    use_mock = "--mock" in sys.argv
+    orchestrator = BrainstemOrchestrator(use_mock=use_mock)
+
+    loop = asyncio.get_running_loop()
+
+    def handle_signal():
+        asyncio.create_task(orchestrator.stop())
+
+    if sys.platform != "win32":
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, handle_signal)
+
+    try:
+        await orchestrator.start()
+    except KeyboardInterrupt:
+        logger.info("Interrupción de teclado detectada.")
+    finally:
+        await orchestrator.stop()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

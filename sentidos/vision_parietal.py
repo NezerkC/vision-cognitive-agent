@@ -158,7 +158,10 @@ class VisionParietal:
         """
         try:
             while reader and not reader.at_eof():
-                line = await asyncio.wait_for(reader.readline(), timeout=60.0)
+                try:
+                    line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+                except TimeoutError:
+                    continue
                 if not line:
                     break
                 try:
@@ -203,8 +206,6 @@ class VisionParietal:
                                 logger.info(f"👁️ Visión Parietal: Estado mock actualizado a {self.force_mock}")
                         except Exception as ex:
                             logger.warning(f"Failed to reload mock settings in Vision: {ex}")
-        except TimeoutError:
-            pass
         except Exception as e:
             logger.error(f"Reader daemon error: {e}")
 

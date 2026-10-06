@@ -265,27 +265,41 @@ class BrainstemWatchdog:
 
 async def main():
     use_mock = "--mock" in sys.argv
-    if use_mock:
-        logger.info("Mock mode enabled for LanceDB manager.")
+    use_multi_process = "--multi-process" in sys.argv
 
-    watchdog = BrainstemWatchdog(use_mock_db=use_mock)
+    if use_multi_process:
+        logger.info("Modo multi-proceso seleccionado (--multi-process).")
+        if use_mock:
+            logger.info("Mock mode enabled for LanceDB manager.")
+        watchdog = BrainstemWatchdog(use_mock_db=use_mock)
 
-    # Register OS signal handlers
-    loop = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
 
-    def handle_shutdown():
-        watchdog.stop()
+        def handle_shutdown():
+            watchdog.stop()
 
-    if sys.platform != "win32":
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, handle_shutdown)
+        if sys.platform != "win32":
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, handle_shutdown)
 
-    try:
-        await watchdog.start()
-    except KeyboardInterrupt:
-        logger.info("Watchdog interrupted by user.")
-    finally:
-        watchdog.stop()
+        try:
+            await watchdog.start()
+        except KeyboardInterrupt:
+            logger.info("Watchdog interrupted by user.")
+        finally:
+            watchdog.stop()
+    else:
+        # Default: Unified In-Process Hexagonal Orchestrator
+        from core.orchestrator import BrainstemOrchestrator
+
+        logger.info("Ejecutando Orquestador Cerebral Unificado (Clean/Hexagonal in-memory mode)...")
+        orchestrator = BrainstemOrchestrator(use_mock=use_mock)
+        try:
+            await orchestrator.start()
+        except KeyboardInterrupt:
+            logger.info("Orquestador interrumpido por el usuario.")
+        finally:
+            await orchestrator.stop()
 
 
 if __name__ == "__main__":
