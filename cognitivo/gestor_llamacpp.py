@@ -140,40 +140,63 @@ def obtener_telemetria_sistema() -> dict:
         except Exception:
             pass
 
-    # Telemetría de GPU (NVIDIA via nvidia-smi)
-    vram_used_gb = 0.0
-    vram_total_gb = 16.0
-    gpu_temp = 45
-    vram_percent = 0.0
-
-    try:
-        smi_out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=memory.used,memory.total,temperature.gpu", "--format=csv,noheader,nounits"],
-            encoding="utf-8",
-            errors="ignore",
-        )
-        lines = smi_out.strip().split("\n")
-        if lines:
-            used, total, temp = [x.strip() for x in lines[0].split(",")]
-            vram_used_gb = round(float(used) / 1024.0, 1)
-            vram_total_gb = round(float(total) / 1024.0, 1)
-            vram_percent = round((vram_used_gb / vram_total_gb) * 100, 1) if vram_total_gb > 0 else 0.0
-            gpu_temp = int(temp)
-    except Exception as e:
-        logger.debug(f"nvidia-smi no disponible o falló: {e}")
+    # GPU and temperatures: real readings or None, never placeholder numbers.
+    gpu = leer_gpu_nvidia() or dict.fromkeys(_GPU_KEYS)
 
     return {
         "cpuPercent": cpu_percent,
         "ramUsedGb": round(mem.used / (1024**3), 1),
         "ramTotalGb": round(mem.total / (1024**3), 1),
         "ramPercent": mem.percent,
-        "vramUsedGb": vram_used_gb,
-        "vramTotalGb": vram_total_gb,
-        "vramPercent": vram_percent,
-        "gpuTemp": gpu_temp,
-        "cpuTemp": 50,
+        **gpu,
+        "cpuTemp": leer_temperatura_cpu(),
         "disks": disks,
     }
+
+
+_GPU_KEYS = ("gpuName", "vramUsedGb", "vramTotalGb", "vramPercent", "gpuTemp")
+
+
+def leer_gpu_nvidia() -> dict | None:
+    """First NVIDIA GPU as reported by nvidia-smi, or None when there is no NVIDIA GPU or driver."""
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.used,memory.total,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            encoding="utf-8",
+            errors="ignore",
+            timeout=5,
+        )
+        name, used, total, temp = [x.strip() for x in out.strip().splitlines()[0].split(",")]
+        used_gb, total_gb = round(float(used) / 1024.0, 1), round(float(total) / 1024.0, 1)
+        return {
+            "gpuName": name,
+            "vramUsedGb": used_gb,
+            "vramTotalGb": total_gb,
+            "vramPercent": round(used_gb / total_gb * 100, 1) if total_gb > 0 else None,
+            "gpuTemp": int(temp),
+        }
+    except Exception as e:
+        logger.debug(f"nvidia-smi no disponible o salida no reconocida: {e}")
+        return None
+
+
+def leer_temperatura_cpu() -> float | None:
+    """CPU package temperature from psutil sensors. None where the OS exposes none (e.g. Windows without admin tools)."""
+    sensors = getattr(psutil, "sensors_temperatures", None)
+    if sensors is None:
+        return None
+    try:
+        readings = sensors() or {}
+    except Exception:
+        return None
+    for chip in ("coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz"):
+        if readings.get(chip):
+            return readings[chip][0].current
+    return None
 
 
 def generar_script_bat(nombre_perfil: str, config: dict, folder_path: str, model_path: str = "") -> str:

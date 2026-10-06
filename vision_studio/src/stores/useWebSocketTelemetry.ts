@@ -8,13 +8,19 @@ export interface MemoryNode4D {
   w: number;
 }
 
+/** Hardware readings as sent by the gateway (cognitivo/gestor_llamacpp.py). null means not available. */
 export interface TelemetryData {
-  cpu_pct?: number;
-  ram_pct?: number;
-  vram_pct?: number;
-  gpu_temp?: number;
-  vram_used_gb?: number;
-  vram_total_gb?: number;
+  cpuPercent?: number | null;
+  ramUsedGb?: number | null;
+  ramTotalGb?: number | null;
+  ramPercent?: number | null;
+  gpuName?: string | null;
+  vramUsedGb?: number | null;
+  vramTotalGb?: number | null;
+  vramPercent?: number | null;
+  gpuTemp?: number | null;
+  cpuTemp?: number | null;
+  disks?: { name: string; freeGb: number; totalGb: number; percent: number }[];
 }
 
 export interface EmotionState {
@@ -33,13 +39,13 @@ export interface EmotionState {
 }
 
 interface TelemetryStore {
-  gpuName: string;
+  gpuName: string | null;
   telemetry: TelemetryData;
   emotion: EmotionState | null;
   memoryNodes: MemoryNode4D[];
   isConnected: boolean;
   setTelemetryData: (data: {
-    gpu_name?: string;
+    gpu_name?: string | null;
     telemetry?: TelemetryData;
     emotion?: EmotionState;
     memory_nodes?: MemoryNode4D[];
@@ -47,16 +53,10 @@ interface TelemetryStore {
   setIsConnected: (connected: boolean) => void;
 }
 
+// No readings until the gateway sends them: the HUD shows dashes instead of plausible-looking numbers.
 export const useWebSocketTelemetry = create<TelemetryStore>((set) => ({
-  gpuName: 'NVIDIA GeForce RTX 5060 Ti',
-  telemetry: {
-    cpu_pct: 12.4,
-    ram_pct: 38.2,
-    vram_pct: 28.5,
-    gpu_temp: 46.0,
-    vram_used_gb: 4.56,
-    vram_total_gb: 16.0,
-  },
+  gpuName: null,
+  telemetry: {},
   emotion: {
     estado: 'Neutral',
     intensidad: 0.5,
@@ -76,8 +76,8 @@ export const useWebSocketTelemetry = create<TelemetryStore>((set) => ({
 
   setTelemetryData: (data) =>
     set((state) => ({
-      gpuName: data.gpu_name || state.gpuName,
-      telemetry: data.telemetry ? { ...state.telemetry, ...data.telemetry } : state.telemetry,
+      gpuName: data.gpu_name !== undefined ? data.gpu_name : state.gpuName,
+      telemetry: data.telemetry ?? state.telemetry,
       emotion: data.emotion || state.emotion,
       memoryNodes: data.memory_nodes && data.memory_nodes.length > 0 ? data.memory_nodes : state.memoryNodes,
     })),

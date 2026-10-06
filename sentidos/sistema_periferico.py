@@ -1179,61 +1179,66 @@ async def websocket_sensorial(websocket: WebSocket):
         logger.info(f"Dashboard client cleaned up. Connected remaining: {len(gateway.active_websockets)}")
 
 
+def construir_payload_telemetria() -> dict:
+    """Hardware telemetry, Plutchik emotion state and 4D memory nodes for the HUD. Missing readings stay None."""
+    # 1. Hardware & System Telemetry
+    telemetry = {}
+    if obtener_telemetria_sistema:
+        try:
+            telemetry = obtener_telemetria_sistema()
+        except Exception as e:
+            logger.warning(f"Could not read system telemetry: {e}")
+
+    # 2. Emotion state
+    emotion = None
+    emotion_path = os.path.join(PROJECT_ROOT, "config", "emotions.json")
+    if os.path.exists(emotion_path):
+        try:
+            with open(emotion_path, encoding="utf-8") as f:
+                emotion = json.load(f)
+        except Exception:
+            pass
+
+    # 3. 4D Memory Radar Nodes
+    memory_nodes = []
+    mem_path = os.path.join(PROJECT_ROOT, "memoria_activa")
+    if os.path.exists(mem_path):
+        try:
+            db = lancedb.connect(mem_path)
+            if "memoria_fractal" in db.table_names():
+                tbl = db.open_table("memoria_fractal")
+                df = tbl.to_pandas().head(100)
+                for _, row in df.iterrows():
+                    memory_nodes.append(
+                        {
+                            "text": str(row.get("text", "")),
+                            "x": float(row.get("coordenada_x", 0.0)),
+                            "y": float(row.get("coordenada_y", 0.0)),
+                            "z": float(row.get("coordenada_z", 0.0)),
+                            "w": float(row.get("coordenada_w", 100.0)),
+                        }
+                    )
+        except Exception:
+            pass
+
+    return {
+        "topic": "canal.telemetria.realtime",
+        "data": {
+            "telemetry": telemetry,
+            "gpu_name": telemetry.get("gpuName"),
+            "emotion": emotion,
+            "memory_nodes": memory_nodes,
+            "timestamp": time.time(),
+        },
+    }
+
+
 async def periodic_telemetry_loop():
-    """Periodically broadcasts hardware telemetry (RTX 5060 Ti, RAM/VRAM), Plutchik emotion state, and 4D memory nodes over WebSockets."""
+    """Periodically broadcasts hardware telemetry, Plutchik emotion state, and 4D memory nodes over WebSockets."""
     while True:
         try:
             if gateway.active_websockets:
-                # 1. Hardware & System Telemetry
-                telemetry = {}
-                if obtener_telemetria_sistema:
-                    try:
-                        telemetry = obtener_telemetria_sistema()
-                    except Exception:
-                        pass
-
-                # 2. Emotion state
-                emotion = None
-                emotion_path = os.path.join(PROJECT_ROOT, "config", "emotions.json")
-                if os.path.exists(emotion_path):
-                    try:
-                        with open(emotion_path, encoding="utf-8") as f:
-                            emotion = json.load(f)
-                    except Exception:
-                        pass
-
-                # 3. 4D Memory Radar Nodes
-                memory_nodes = []
-                mem_path = os.path.join(PROJECT_ROOT, "memoria_activa")
-                if os.path.exists(mem_path):
-                    try:
-                        db = lancedb.connect(mem_path)
-                        if "memoria_fractal" in db.table_names():
-                            tbl = db.open_table("memoria_fractal")
-                            df = tbl.to_pandas().head(100)
-                            for _, row in df.iterrows():
-                                memory_nodes.append(
-                                    {
-                                        "text": str(row.get("text", "")),
-                                        "x": float(row.get("coordenada_x", 0.0)),
-                                        "y": float(row.get("coordenada_y", 0.0)),
-                                        "z": float(row.get("coordenada_z", 0.0)),
-                                        "w": float(row.get("coordenada_w", 100.0)),
-                                    }
-                                )
-                    except Exception:
-                        pass
-
-                payload = {
-                    "topic": "canal.telemetria.realtime",
-                    "data": {
-                        "telemetry": telemetry,
-                        "gpu_name": "NVIDIA GeForce RTX 5060 Ti",
-                        "emotion": emotion,
-                        "memory_nodes": memory_nodes,
-                        "timestamp": time.time(),
-                    },
-                }
+                payload = await asyncio.to_thread(construir_payload_telemetria)
                 await gateway.broadcast_to_websockets(payload)
         except Exception as e:
             logger.debug(f"Telemetry broadcast error: {e}")

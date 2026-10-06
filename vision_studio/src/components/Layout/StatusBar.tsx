@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useWebSocketTelemetry } from '../../stores/useWebSocketTelemetry';
+import { formatMetric } from '../../lib/format';
 
 export default function StatusBar() {
   const { gpuName, telemetry, emotion, isConnected, setTelemetryData, setIsConnected } = useWebSocketTelemetry();
@@ -45,8 +46,8 @@ export default function StatusBar() {
     };
   }, [setTelemetryData, setIsConnected]);
 
-  const vramPct = telemetry.vram_pct !== undefined ? telemetry.vram_pct.toFixed(1) : '28.5';
-  const ramPct = telemetry.ram_pct !== undefined ? telemetry.ram_pct.toFixed(1) : '38.2';
+  const vramPct = formatMetric(telemetry.vramPercent, 1, '%');
+  const ramPct = formatMetric(telemetry.ramPercent, 1, '%');
 
   return (
     <div className="statusbar flex items-center justify-between text-xs px-3 py-1 bg-[#1e1e1e] text-[#cccccc] border-t border-[#333333]">
@@ -57,10 +58,10 @@ export default function StatusBar() {
           </span>
         </div>
         <div className="item font-mono text-[#a0a0a0]">
-          🎮 {gpuName}: <span className="text-emerald-400">{vramPct}% VRAM</span>
+          🎮 {gpuName ?? 'GPU'}: <span className="text-emerald-400">{vramPct} VRAM</span>
         </div>
         <div className="item font-mono text-[#a0a0a0]">
-          💾 RAM: <span className="text-cyan-400">{ramPct}%</span>
+          💾 RAM: <span className="text-cyan-400">{ramPct}</span>
         </div>
       </div>
       <div className="side flex items-center gap-4">
