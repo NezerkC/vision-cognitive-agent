@@ -111,6 +111,7 @@ class PerifericoGateway:
                                     "canal.sistema.contexto_actual",
                                     "canal.sensorial.audio.transcripcion",
                                     "canal.ejecucion.accion",
+                                    "canal.ejecucion.resultado",
                                     "canal.imaginacion.respuesta",
                                     "canal.sistema.anuncios",
                                     "canal.sensorial.vision",

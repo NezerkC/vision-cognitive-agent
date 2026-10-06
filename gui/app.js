@@ -364,7 +364,7 @@ function handleBrokerEvent(event) {
         if (msg.includes("¿Me das permiso para crear un ticket de situación")) {
             createHITLTicket(
                 "TICKET_INTRIGA",
-                `Investigar solución técnica para: <strong>${errorText || "Error detectado en pantalla"}</strong>`,
+                `Investigar solución técnica para: <strong>${escapeHtml(errorText || "Error detectado en pantalla")}</strong>`,
                 () => {
                     sendWebSocketMessage("canal.sensorial.audio.transcripcion", {
                         "transcripcion": "si, procede a investigar por favor"
@@ -393,28 +393,30 @@ function handleBrokerEvent(event) {
         // Update ejecutor panel
         updateEjecutorPanel(tool, params, reqId, "pending");
 
-        if (tool === "control_ui") {
-            createHITLTicket(
-                reqId,
-                `Ejecución de Automatización de Teclado/Mouse: <strong>${JSON.stringify(params)}</strong>`,
-                () => {
-                    sendWebSocketMessage("canal.ejecucion.resultado", {
-                        "request_id": reqId,
-                        "resultado": { "status": "success", "detail": "UI Action Approved by HITL" },
-                        "approved": true
-                    });
-                    updateEjecutorPanel(tool, params, reqId, "approved");
-                },
-                () => {
-                    sendWebSocketMessage("canal.ejecucion.resultado", {
-                        "request_id": reqId,
-                        "resultado": { "status": "rejected", "detail": "UI Action Rejected by HITL User" },
-                        "approved": false
-                    });
-                    updateEjecutorPanel(tool, params, reqId, "rejected");
-                }
-            );
-        }
+        // The executor runs nothing until it receives this decision on canal.ejecucion.aprobacion.
+        const label = tool === "ejecutar_script" ? "Ejecución de comando de sistema"
+            : tool === "control_ui" ? "Ejecución de Automatización de Teclado/Mouse"
+            : `Herramienta '${tool}'`;
+        createHITLTicket(
+            reqId,
+            `${escapeHtml(label)}: <strong>${escapeHtml(JSON.stringify(params))}</strong>`,
+            () => {
+                sendWebSocketMessage("canal.ejecucion.aprobacion", { "request_id": reqId, "approved": true });
+                updateEjecutorPanel(tool, params, reqId, "approved");
+            },
+            () => {
+                sendWebSocketMessage("canal.ejecucion.aprobacion", { "request_id": reqId, "approved": false });
+                updateEjecutorPanel(tool, params, reqId, "rejected");
+            }
+        );
+
+    } else if (topic === "canal.ejecucion.resultado") {
+        const res = data.resultado || {};
+        const detail = res.detail ? ` — ${res.detail}` : "";
+        addTerminalLog(
+            `⚙️ [Ejecución] ${data.request_id}: ${res.status}${detail}`,
+            res.status === "success" ? "resp-success" : "resp-error"
+        );
     }
 }
 
@@ -1225,7 +1227,7 @@ function createHITLTicket(ticketId, messageHtml, approveCallback, rejectCallback
     card.className = "ticket-card";
 
     card.innerHTML = `
-        <div class="ticket-title">AUTORIZACIÓN PENDIENTE // ID: ${ticketId}</div>
+        <div class="ticket-title">AUTORIZACIÓN PENDIENTE // ID: ${escapeHtml(String(ticketId))}</div>
         <div class="ticket-msg">${messageHtml}</div>
         <div class="ticket-actions">
             <button class="btn-approve">APROBAR</button>

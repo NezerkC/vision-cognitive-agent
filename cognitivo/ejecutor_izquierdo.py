@@ -12,21 +12,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EjecutorIzquierdo")
 
-# Attempt to load pyautogui safely
+# Attempt to load pyautogui safely (on a headless Linux it raises display errors, not only ImportError)
 pyautogui = None
 try:
     import pyautogui
-except ImportError:
-    logger.warning("pyautogui not installed. UI automation will run in simulated/mock mode.")
+except Exception as e:
+    logger.warning(f"pyautogui unavailable ({e}). UI automation will run in simulated/mock mode.")
+
+ACTION_TOPIC = "canal.ejecucion.accion"
+APPROVAL_TOPIC = "canal.ejecucion.aprobacion"
+RESULT_TOPIC = "canal.ejecucion.resultado"
+SUPPORTED_TOOLS = frozenset({"control_ui", "ejecutar_script"})
+# A request the human has not answered within this window can no longer be approved.
+PENDING_TTL_SECONDS = 300
 
 
 class EjecutorIzquierdo:
-    def __init__(self, host: str = "127.0.0.1", port: int = 5000, is_mock: bool = False):
+    """Runs keyboard/mouse and shell actions, only after a human approves each one (HITL).
+
+    canal.ejecucion.accion registers a pending request (the GUI shows it as a ticket);
+    canal.ejecucion.aprobacion {"request_id", "approved": true|false} runs or discards it.
+    """
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 5000, is_mock: bool = False, clock=time.monotonic):
         self.host = host
         self.port = port
         self.is_mock = is_mock
         if not pyautogui:
             self.is_mock = True
+        self._clock = clock
+        self.pending: dict[str, tuple[dict, float]] = {}
 
     async def execute_control_ui(self, commands) -> dict:
         """
@@ -75,6 +90,9 @@ class EjecutorIzquierdo:
         Runs shell/Python command asynchronously using asyncio subprocess.
         """
         logger.info(f"Running system command: {command_str}")
+        if self.is_mock:
+            logger.info("[MOCK MODE] Simulating shell command without execution.")
+            return {"status": "success", "exit_code": 0, "stdout": "", "stderr": "", "detail": "Simulated (mock mode)"}
         try:
             # We use shell execution to easily support cross-platform scripts
             process = await asyncio.create_subprocess_shell(
@@ -98,28 +116,70 @@ class EjecutorIzquierdo:
             return {"status": "error", "detail": str(e)}
 
     async def handle_action(self, event_data, writer):
-        """
-        Parses and executes incoming tool execution request.
-        """
-        request_id = event_data.get("request_id", f"action-{int(time.time())}")
+        """Registers an action request. Nothing runs until a human approves it via APPROVAL_TOPIC."""
+        request_id = event_data.get("request_id")
+        tool = event_data.get("herramienta")
+        logger.info(f"Received action request {request_id} for tool '{tool}'")
+
+        if not request_id:
+            logger.warning("Dropping action without request_id: it could never be approved.")
+            return
+        if tool not in SUPPORTED_TOOLS:
+            await self.publish_result(
+                writer, request_id, {"status": "error", "detail": f"Tool '{tool}' not supported."}
+            )
+            return
+
+        self._expire_pending()
+        if request_id in self.pending:
+            # Never replace a pending request: the human approves what the ticket showed.
+            logger.warning(f"Request {request_id} is already pending; ignoring the duplicate.")
+            await self.publish_result(
+                writer, request_id, {"status": "error", "detail": "Duplicate request_id while pending approval."}
+            )
+            return
+
+        self.pending[request_id] = (event_data, self._clock())
+        logger.info(f"Action {request_id} awaiting human approval.")
+
+    async def handle_approval(self, approval, writer):
+        """Runs (approved is True) or discards a pending request. Each request can be decided once."""
+        request_id = approval.get("request_id")
+        self._expire_pending()
+        entry = self.pending.pop(request_id, None)
+        if entry is None:
+            logger.warning(f"Approval for unknown or expired request {request_id}; ignored.")
+            return
+
+        if approval.get("approved") is not True:
+            logger.info(f"Action {request_id} rejected by the human reviewer.")
+            await self.publish_result(
+                writer, request_id, {"status": "rejected", "detail": "Rejected by human reviewer."}
+            )
+            return
+
+        event_data, _ = entry
         tool = event_data.get("herramienta")
         params = event_data.get("parametros", [])
-
-        logger.info(f"Received action request {request_id} for tool '{tool}'")
-        result = {}
-
+        logger.info(f"Action {request_id} approved. Executing '{tool}'.")
         if tool == "control_ui":
             result = await self.execute_control_ui(params)
-        elif tool == "ejecutar_script":
+        else:
             cmd_str = params[0] if isinstance(params, list) and len(params) > 0 else str(params)
             result = await self.execute_script(cmd_str)
-        else:
-            result = {"status": "error", "detail": f"Tool '{tool}' not supported."}
+        await self.publish_result(writer, request_id, result)
 
-        # Publish result to the broker
+    def _expire_pending(self):
+        now = self._clock()
+        for request_id, (_, created_at) in list(self.pending.items()):
+            if now - created_at > PENDING_TTL_SECONDS:
+                logger.info(f"Action {request_id} expired without approval.")
+                del self.pending[request_id]
+
+    async def publish_result(self, writer, request_id: str, result: dict):
         payload = {
             "action": "publish",
-            "topic": "canal.ejecucion.resultado",
+            "topic": RESULT_TOPIC,
             "data": {"request_id": request_id, "resultado": result, "timestamp": time.time()},
         }
         try:
@@ -137,7 +197,7 @@ class EjecutorIzquierdo:
 
                 # Subscribe to execution actions and system commands
                 subscribe_msg = (
-                    json.dumps({"action": "subscribe", "topics": ["canal.ejecucion.accion", "system"]}) + "\n"
+                    json.dumps({"action": "subscribe", "topics": [ACTION_TOPIC, APPROVAL_TOPIC, "system"]}) + "\n"
                 )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
@@ -152,9 +212,11 @@ class EjecutorIzquierdo:
                     topic = event.get("topic")
                     data = event.get("data", {})
 
-                    if topic == "canal.ejecucion.accion":
-                        # Execute the tool in the background
-                        asyncio.create_task(self.handle_action(data, writer))
+                    if topic == ACTION_TOPIC:
+                        await self.handle_action(data, writer)
+                    elif topic == APPROVAL_TOPIC:
+                        # Run approved actions in the background so the event loop keeps reading.
+                        asyncio.create_task(self.handle_approval(data, writer))
                     elif topic == "system":
                         action = data.get("action")
                         if action == "reload_arranque":
