@@ -55,8 +55,8 @@ async def test_pineal_daemon_consolidation(isolated_memory):
     res_cons = await daemon.run_consolidation()
     assert res_cons["status"] == "success"
 
-    summary = await daemon.generate_context_summary()
-    assert "Consolidación nocturna" in summary
+    # No activity was recorded, so there is nothing to summarize.
+    assert await daemon.generate_context_summary() is None
 
     triples = await daemon.build_graphrag_index()
     assert isinstance(triples, list)
