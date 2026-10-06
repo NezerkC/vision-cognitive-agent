@@ -5,10 +5,12 @@ high-performance AsyncInMemoryEventBus and a backward-compatible TCP socket brid
 """
 
 import asyncio
+import json
 import logging
 import os
 import signal
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -41,6 +43,7 @@ logger = logging.getLogger("BrainstemOrchestrator")
 
 ServiceFactory = Callable[[], Awaitable[None]]
 RESTART_DELAY_SECONDS = 3
+HEALTH_INTERVAL_SECONDS = 3
 
 
 class BrainstemOrchestrator:
@@ -58,6 +61,8 @@ class BrainstemOrchestrator:
         self.tcp_bridge: TCPEventBusBridge | None = None
         self.tasks: list[asyncio.Task] = []
         self.should_run = True
+        # name -> {"status", "started_at", "restarts", "last_error"}; published for GET /api/health.
+        self.service_status: dict[str, dict[str, Any]] = {}
 
         # Project directory resolution
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -107,6 +112,7 @@ class BrainstemOrchestrator:
         for name, factory in self.service_factories(lancedb_mgr, lancedb_mock):
             task = asyncio.create_task(self._supervise(name, factory), name=f"Task_{name}")
             self.tasks.append(task)
+        self.tasks.append(asyncio.create_task(self.write_health_status(), name="Task_Health"))
 
         logger.info(f"✨ Todos los {len(self.tasks)} módulos neurales se ejecutan en un solo runtime Python.")
 
@@ -151,7 +157,9 @@ class BrainstemOrchestrator:
 
     async def _supervise(self, name: str, factory: ServiceFactory) -> None:
         """Runs a service, restarting it with a fresh coroutine after it crashes or exits."""
+        status = self.service_status.setdefault(name, {"restarts": 0, "last_error": None})
         while self.should_run:
+            status.update(status="running", started_at=time.time())
             try:
                 logger.info(f"[{name.upper()}] Iniciando servicio...")
                 await factory()
@@ -159,9 +167,43 @@ class BrainstemOrchestrator:
                 break
             except Exception as e:
                 logger.error(f"[{name.upper()}] Error en ejecución: {e}", exc_info=True)
+                status["last_error"] = str(e)
             if self.should_run:
+                status["restarts"] += 1
+                status["status"] = "restarting"
                 logger.warning(f"[{name.upper()}] Servicio detenido. Reiniciando en {RESTART_DELAY_SECONDS}s...")
                 await asyncio.sleep(RESTART_DELAY_SECONDS)
+        status["status"] = "stopped"
+
+    def health_snapshot(self) -> dict[str, Any]:
+        """Per-service status in the same shape the multi-process watchdog writes."""
+        now = time.time()
+        services = {
+            name: {
+                "status": status.get("status", "starting"),
+                "uptime_s": int(now - status["started_at"]) if status.get("started_at") else 0,
+                "restarts": status.get("restarts", 0),
+                "last_error": status.get("last_error"),
+            }
+            for name, status in self.service_status.items()
+        }
+        return {"services": services, "timestamp": now}
+
+    def write_health_file(self) -> None:
+        """Writes config/.health_status.json, which GET /api/health reads."""
+        health_path = os.path.join(self.project_root, "config", ".health_status.json")
+        os.makedirs(os.path.dirname(health_path), exist_ok=True)
+        with open(health_path, "w", encoding="utf-8") as f:
+            json.dump(self.health_snapshot(), f)
+
+    async def write_health_status(self) -> None:
+        """Refreshes the health file every HEALTH_INTERVAL_SECONDS while the orchestrator runs."""
+        while self.should_run:
+            try:
+                self.write_health_file()
+            except OSError as e:
+                logger.error(f"No se pudo escribir el estado de salud: {e}")
+            await asyncio.sleep(HEALTH_INTERVAL_SECONDS)
 
     async def stop(self) -> None:
         """Gracefully shuts down the orchestrator and all managed tasks."""

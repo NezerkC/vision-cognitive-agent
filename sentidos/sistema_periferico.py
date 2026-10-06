@@ -47,6 +47,8 @@ os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "artifacts")
 os.makedirs(ARTIFACTS_DIR, exist_ok=True)
 GUI_DIR = os.path.join(PROJECT_ROOT, "gui")
+# The orchestrator and the watchdog refresh config/.health_status.json every 3 seconds.
+HEALTH_STALE_SECONDS = 15
 
 app.mount("/artifacts", StaticFiles(directory=ARTIFACTS_DIR), name="artifacts")
 if os.path.exists(GUI_DIR):
@@ -290,15 +292,23 @@ async def get_health():
       - Current emotional state (from config/emotions.json)
       - Memory tier storage usage (from memoria_activa/ size × config)
     """
-    result = {"services": {}, "emotion": None, "memory_tier": {"hot_usage_pct": 0.0, "hot_usage_gb": 0.0}}
+    result = {
+        "services": {},
+        "stale": True,
+        "emotion": None,
+        "memory_tier": {"hot_usage_pct": 0.0, "hot_usage_gb": 0.0},
+    }
 
-    # 1. Read watchdog health status file
+    # 1. Read the health file the orchestrator or the watchdog refreshes every few seconds.
+    #    A missing or old file means nobody is supervising the services, so the status is stale.
     health_path = os.path.join(PROJECT_ROOT, "config", ".health_status.json")
     try:
         if os.path.exists(health_path):
             with open(health_path, encoding="utf-8") as f:
                 health_data = json.load(f)
             result["services"] = health_data.get("services", {})
+            age = time.time() - float(health_data.get("timestamp", 0))
+            result["stale"] = age > HEALTH_STALE_SECONDS
     except Exception as e:
         logger.error(f"Error reading health status: {e}")
 
