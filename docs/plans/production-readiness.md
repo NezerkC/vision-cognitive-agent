@@ -64,7 +64,7 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 - [x] 1.10 `/api/memoria` uses the real schema columns (`sentidos/sistema_periferico.py` 386-392). Remove the hardcoded sample nodes in `gui/app.js` (1092-1101). Fix the `temperatura_z` schema mismatch in `memoria/cargador_datasets.py` (84, 90).
 - [x] 1.11 `cognitivo/memoria.py` propagates save errors (92-97). `/api/health` works in in-process mode (`sentidos/sistema_periferico.py` 293-298).
 - [ ] 1.12 Move `core/test_*.py` to `tests/integration/` (skipped without a running broker) or delete the ones already covered by unit tests.
-- [ ] 1.13 Topics without a production producer: wire them or remove their consumers (`canal.imaginacion.peticion`, `canal.web.busqueda`, `canal.sistema.fin_tarea`, `canal.ejecucion.accion`, `canal.sensorial.audio.hablar`). Forward voice transcriptions to `canal.cognitivo.entrada`.
+- [ ] 1.13 Topics without a production producer: wire them or remove their consumers (`canal.imaginacion.peticion`, `canal.web.busqueda`, `canal.sistema.fin_tarea`, `canal.ejecucion.accion`, `canal.sensorial.audio.hablar`). Forward voice transcriptions to `canal.cognitivo.entrada`. The producer of `canal.imaginacion.peticion` is task 4.5, so leave that topic to phase 4. Also: topics published without a consumer (`canal.sensorial.periferico` from `/webhook/externo`, `canal.sensorial.archivo_recibido` from `/upload_sensorial`); `memoria/hipocampo.py` (~148) still publishes the legacy `temperatura_z` field instead of `coordenada_w`; `ProtocoloIntriga.is_mock` is never used.
 
 ## Phase 2: Notebooks (NotebookLM) and RAG agent
 
