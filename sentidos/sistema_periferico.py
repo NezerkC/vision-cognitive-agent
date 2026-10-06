@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 
 from cognitivo.cuadernos_manager import CuadernosManager, NotebookNotFoundError
+from cognitivo.modelo_vision import HARDWARE_CONFIG_PATH, resolve_vision_model
 from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
 from sentidos.limites_subida import read_upload_limited
 from sentidos.seguridad_local import accept_local_websocket, install_local_origin_guards
@@ -729,24 +730,13 @@ async def save_config_arranque(request: Request):
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
-def get_vision_model_details():
-    try:
-        yaml_path = os.path.join(PROJECT_ROOT, "config", "llm_router.yaml")
-        with open(yaml_path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        strategy = cfg.get("routing_strategy", "hibrido_api")
-        model_cfg = cfg.get("strategies", {}).get(strategy, {}).get("esfuerzo_medio", {})
-        model_name = model_cfg.get("model", "openrouter/google/gemini-2.5-flash:free")
-        api_base = model_cfg.get("api_base")
-        api_key_env = model_cfg.get("api_key")
-        api_key = os.environ.get(api_key_env, api_key_env) if api_key_env else None
-        return model_name, api_base, api_key
-    except Exception:
-        return (
-            "openrouter/google/gemini-2.5-flash:free",
-            "https://openrouter.ai/api/v1",
-            os.environ.get("OPENROUTER_API_KEY"),
-        )
+def get_vision_model_details(config_path: str | None = None):
+    """Vision model for uploaded images: the same one that analyses screenshots (vision_activa.modelo_vision).
+
+    Raises VisionModelNotConfiguredError when none is set instead of describing images with a text-only model.
+    """
+    vision = resolve_vision_model(config_path or HARDWARE_CONFIG_PATH)
+    return vision.model, vision.api_base, vision.api_key
 
 
 @app.post("/api/memoria/aprender")
@@ -807,7 +797,7 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                 kwargs["api_key"] = api_key
 
             logger.info(f"Calling vision model '{model_name}' to describe image...")
-            response = await litellm.acompletion(model=model_name, messages=messages, timeout=30.0, **kwargs)
+            response = await litellm.acompletion(model=model_name, messages=messages, timeout=180.0, **kwargs)
             text_content = response.choices[0].message.content
             logger.info("Successfully generated image description.")
 

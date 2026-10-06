@@ -81,6 +81,9 @@ implementations in `core/adapters/`.
   stops with an explicit error instead of falling back to fake vectors. Each vector store records its embedder in
   `embedder.json` and refuses vectors from another one; after upgrading, or after switching embedders, run
   `python -m memoria.reindex` once to recompute the stored vectors from their text.
+- Screenshots and uploaded images are analysed by the vision model in `config/hardware_interfaces.json`
+  (`vision_activa.modelo_vision`, a LiteLLM id; `local/<name>` means an Ollama model such as `local/qwen3-vl`). Without
+  one, image requests fail instead of going to a text-only model.
 - `config/arranque.yaml` holds the mock switches. Every service runs for real unless its flag is `true` or `--mock`
   is passed; a missing key means real mode. `config/memory_tiering.yaml` holds the hot/cold memory stores.
 
