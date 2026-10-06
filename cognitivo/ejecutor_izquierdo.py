@@ -65,8 +65,8 @@ class EjecutorIzquierdo:
         self.host = host
         self.port = port
         self.is_mock = is_mock
-        if not pyautogui:
-            self.is_mock = True
+        # Without pyautogui (e.g. a headless host) UI automation can only be simulated; shell commands still run.
+        self.ui_available = pyautogui is not None
         self._clock = clock
         self.pending: dict[str, tuple[dict, float]] = {}
 
@@ -85,7 +85,7 @@ class EjecutorIzquierdo:
         print(f"\033[91mComandos UI recibidos: {commands}\033[0m")
         print("\033[93m" + "=" * 80 + "\033[0m")
 
-        if self.is_mock:
+        if self.is_mock or not self.ui_available:
             logger.info("[MOCK MODE] Simulating UI actions without physical execution.")
             return {"status": "success", "detail": "UI commands executed (Simulated)"}
 

@@ -168,3 +168,21 @@ async def test_script_that_outlives_the_timeout_is_killed_with_its_children(monk
     assert time.monotonic() - started < 10
     child_pid = int(pid_file.read_text())
     assert not psutil.pid_exists(child_pid) or psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE
+
+
+@pytest.mark.asyncio
+async def test_missing_pyautogui_only_simulates_ui_actions(monkeypatch):
+    """Headless hosts lack pyautogui: UI automation must be simulated, but shell commands still run."""
+    import sys
+
+    import cognitivo.ejecutor_izquierdo as ejecutor_module
+
+    monkeypatch.setattr(ejecutor_module, "pyautogui", None)
+    ejecutor = EjecutorIzquierdo(is_mock=False)
+
+    ui_result = await ejecutor.execute_control_ui(["win"])
+    script_result = await ejecutor.execute_script(f'"{sys.executable}" -c "print(42)"')
+
+    assert "simulated" in ui_result["detail"].lower()
+    assert script_result["status"] == "success"
+    assert script_result["stdout"].strip() == "42"
