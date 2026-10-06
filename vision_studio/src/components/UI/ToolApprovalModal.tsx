@@ -16,6 +16,7 @@ export default function ToolApprovalModal({ request }: Props) {
 
   const { toolName, args, onApprove, onReject } = request;
   const isWriteFile = toolName === 'write_file';
+  const isReadFile = toolName === 'read_file';
   const isPowerShell = toolName === 'execute_powershell';
 
   return (
@@ -42,7 +43,7 @@ export default function ToolApprovalModal({ request }: Props) {
         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
           {/* Tool Badge */}
           <div className="flex items-center gap-2 bg-[#252528] px-3 py-2 rounded-lg border border-[#3c3c3e]">
-            {isWriteFile ? (
+            {isWriteFile || isReadFile ? (
               <FileCode size={16} className="text-[#a78bfa]" />
             ) : isPowerShell ? (
               <Terminal size={16} className="text-emerald-400" />
@@ -53,6 +54,19 @@ export default function ToolApprovalModal({ request }: Props) {
               Herramienta: <code className="text-[#a78bfa]">{toolName}</code>
             </span>
           </div>
+
+          {/* Details for Read File */}
+          {isReadFile && (
+            <div className="flex flex-col gap-1">
+              <span className="text-[#8a8a8a] text-[10px] uppercase font-bold tracking-wider">Archivo a Leer</span>
+              <code className="bg-[#141415] p-2 rounded border border-[#3c3c3e] font-mono text-[#7c6ff0] break-all">
+                {args.path || 'Ruta no especificada'}
+              </code>
+              <span className="text-[#8a8a8a] text-[11px]">
+                El contenido se enviará al modelo. Revisa que no sea un archivo con claves o datos sensibles.
+              </span>
+            </div>
+          )}
 
           {/* Details for Write File */}
           {isWriteFile && (

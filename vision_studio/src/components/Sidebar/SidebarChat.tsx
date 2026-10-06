@@ -4,6 +4,7 @@ import EmotionState from './EmotionState';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { invoke } from '@tauri-apps/api/core';
 import ToolApprovalModal, { ToolApprovalRequest } from '../UI/ToolApprovalModal';
+import { decideToolAccess } from '../../lib/toolPolicy';
 
 const executeWebSearch = async (query: string) => {
   try {
@@ -284,8 +285,18 @@ REGLAS Y HERRAMIENTAS DISPONIBLES:
           }
 
           let toolResult = "";
+          const decision = decideToolAccess(toolName, settings.permissionLevel || 'ask');
+          let isApproved = decision === 'run' || decision === 'native_confirm';
+          if (decision === 'ask') {
+            setActionStatus(`Solicitando permiso para ejecutar ${toolName}...`);
+            isApproved = await requestToolApproval(toolName, args);
+          }
 
-          if (toolName === 'web_search') {
+          if (decision === 'deny') {
+            toolResult = `Error: La herramienta ${toolName} no está permitida con el nivel de permisos actual.`;
+          } else if (!isApproved) {
+            toolResult = `Operación cancelada: El usuario rechazó la ejecución de ${toolName}.`;
+          } else if (toolName === 'web_search') {
             setActionStatus(`Buscando en DuckDuckGo: "${args.query}"...`);
             toolResult = await executeWebSearch(args.query);
           } else if (toolName === 'read_file') {
@@ -295,44 +306,24 @@ REGLAS Y HERRAMIENTAS DISPONIBLES:
             } catch (err) {
               toolResult = `Error al leer archivo: ${err}`;
             }
-          } else if (toolName === 'write_file' || toolName === 'execute_powershell') {
-            const permLevel = settings.permissionLevel || 'ask';
-
-            if (permLevel === 'read_only') {
-              toolResult = `Error: La ejecución de ${toolName} está bloqueada porque el agente está configurado en nivel 'Solo Lectura'.`;
-            } else {
-              let isApproved = true;
-              if (permLevel === 'ask') {
-                setActionStatus(`Solicitando permiso para ejecutar ${toolName}...`);
-                isApproved = await requestToolApproval(toolName, args);
-              }
-
-              if (!isApproved) {
-                toolResult = `Operación cancelada: El usuario rechazó la ejecución de ${toolName}.`;
-              } else {
-                if (toolName === 'write_file') {
-                  setActionStatus(`Escribiendo archivo: ${args.path}...`);
-                  try {
-                    toolResult = await invoke<string>('write_file_content', { path: args.path, content: args.content });
-                  } catch (err) {
-                    toolResult = `Error al escribir archivo: ${err}`;
-                  }
-                } else if (toolName === 'execute_powershell') {
-                  setActionStatus(`Ejecutando PowerShell: ${args.command}...`);
-                  try {
-                    const execRes = await invoke<any>('execute_powershell_command', { 
-                      command: args.command, 
-                      cwd: args.cwd || settings.currentWorkspacePath 
-                    });
-                    toolResult = `Exit Code: ${execRes.exit_code}\nSTDOUT:\n${execRes.stdout}\nSTDERR:\n${execRes.stderr}`;
-                  } catch (err) {
-                    toolResult = `Error al ejecutar comando PowerShell: ${err}`;
-                  }
-                }
-              }
+          } else if (toolName === 'write_file') {
+            setActionStatus(`Escribiendo archivo: ${args.path}...`);
+            try {
+              toolResult = await invoke<string>('write_file_content', { path: args.path, content: args.content });
+            } catch (err) {
+              toolResult = `Error al escribir archivo: ${err}`;
             }
-          } else {
-            toolResult = "Error: Herramienta no implementada.";
+          } else if (toolName === 'execute_powershell') {
+            setActionStatus(`Esperando confirmación para PowerShell: ${args.command}...`);
+            try {
+              const execRes = await invoke<any>('execute_powershell_command', {
+                command: args.command,
+                cwd: args.cwd || null,
+              });
+              toolResult = `Exit Code: ${execRes.exit_code}\nSTDOUT:\n${execRes.stdout}\nSTDERR:\n${execRes.stderr}`;
+            } catch (err) {
+              toolResult = `Error al ejecutar comando PowerShell: ${err}`;
+            }
           }
 
           const toolMessage = { role: 'tool', tool_call_id: toolCall.id, name: toolName, text: toolResult };

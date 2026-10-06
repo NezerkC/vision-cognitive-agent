@@ -24,7 +24,7 @@ This file is the single source of truth for the work loop. Each loop iteration c
 
 1. Strict TDD: write a failing test in `tests/unit/` first, make it pass, then refactor.
 2. Mocks and fakes are allowed in tests only. Production code must never return simulated data. When a dependency is missing, it raises or returns an explicit error.
-3. Before every commit, all of these must pass: `ruff check .`, `ruff format --check .`, `pytest -q tests/unit -p no:cacheprovider`. Frontend tasks also need `npm run build`. Rust tasks also need `cargo check`.
+3. Before every commit, all of these must pass: `ruff check .`, `ruff format --check .`, `pytest -q tests/unit -p no:cacheprovider`. Frontend tasks also need `npm test` and `npm run build` in `vision_studio/`. Rust tasks also need `cargo check`.
 4. Use conventional commits. No `Co-Authored-By`, no AI attribution. Commit the plan update (checkbox + log line) together with the task.
 5. Push with `git push -u origin <branch>`.
 6. Never: merge PRs, push to `main`, force-push, use `--no-verify`, delete data outside the repository, weaken security checks, download files larger than 100 MB, or add credentials.
@@ -45,7 +45,7 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - [x] 0.2 Upload size limit on the notebook upload endpoint (`sentidos/sistema_periferico.py` ~1312-1319). Configurable, default 50 MB, respond 413.
 - [x] 0.3 File tree and `/api/archivos` endpoints: restrict them to the opened workspace and return an error for invalid paths instead of falling back to `PROJECT_ROOT` (`sentidos/sistema_periferico.py` ~1051-1086, ~1368-1396).
 - [x] 0.4 Tauri commands: scope `read_file_content` and `write_file_content` to the active workspace (canonicalize, reject paths outside it, cap file size). Remove the arbitrary PowerShell command or gate it behind an allowlist plus explicit approval (`vision_studio/src-tauri/src/lib.rs` 19-62). Add an app-command permission manifest (`build.rs`) and a strict CSP (`tauri.conf.json`).
-- [ ] 0.5 The AI chat `read_file` and `write_file` tools require user approval (`vision_studio/src/components/Sidebar/SidebarChat.tsx` ~291-316). `execute_powershell` already gets a native confirmation in Rust since 0.4, so drop its duplicate in-app prompt.
+- [x] 0.5 The AI chat `read_file` and `write_file` tools require user approval (`vision_studio/src/components/Sidebar/SidebarChat.tsx` ~291-316). `execute_powershell` already gets a native confirmation in Rust since 0.4, so drop its duplicate in-app prompt.
 - [ ] 0.6 Protocolo de Intriga must never write generated code into the package (`cognitivo/protocolo_intriga.py` ~161-181). Delete the generated junk files `cognitivo/skills/{cargo,docker,gcloud,git,go,kubectl,npm,pip,python}_tool.py` after confirming nothing imports them.
 
 ## Phase 1: Remove production mocks
@@ -114,3 +114,4 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - 0.2 Gateway uploads (notebook sources, `/api/memoria/aprender`, `/upload_sensorial`) are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES` (default 50 MB).
 - 0.3 New `/api/workspace/open` sets the active workspace; tree and file search stay inside it (403 outside, 404 for missing paths, no fallback to the repo). `clone_git` only accepts https/ssh URLs passed after `--`. Vision Studio's FileTree opens the folder and shows gateway errors.
 - 0.4 Rust `set_workspace` state; `read_file_content`/`write_file_content` canonicalize paths and stay inside the workspace (reads capped at 10 MB); `execute_powershell_command` runs inside the workspace only after a native confirmation dialog; app-command permission manifest plus explicit grants; CSP (verified with no violations against the built frontend).
+- 0.5 Chat tool access goes through `decideToolAccess` (Vitest-covered): reads and writes ask for approval unless the level is autonomous, read-only denies writes and PowerShell, PowerShell relies on the native Rust confirmation, unknown tools are denied. Vision Studio now has a Vitest `npm test` script.

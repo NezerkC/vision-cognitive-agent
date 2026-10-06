@@ -88,6 +88,7 @@ implementations in `core/adapters/`.
 | Lint (whole repo, like CI) | `ruff check .` |
 | Format check | `ruff format --check .` |
 | Git hooks | `pre-commit install` |
+| Studio unit tests | `cd vision_studio; npm test` |
 | Studio type-check and build | `cd vision_studio; npm run build` |
 
 - Ruff is pinned to `0.15.22` (CI, pre-commit and dev deps). Without installing it: `uvx ruff@0.15.22 check ...`.
