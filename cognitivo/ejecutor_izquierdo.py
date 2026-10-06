@@ -255,21 +255,10 @@ class EjecutorIzquierdo:
                         action = data.get("action")
                         if action == "reload_arranque":
                             try:
-                                import os
+                                from core.arranque import read_mock_flag
 
-                                import yaml
-
-                                arr_path = os.path.join(
-                                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                    "config",
-                                    "arranque.yaml",
-                                )
-                                if os.path.exists(arr_path):
-                                    with open(arr_path, encoding="utf-8") as f:
-                                        arr_cfg = yaml.safe_load(f)
-                                    mock_flag = arr_cfg.get("modos_mock", {}).get("ejecutor_izquierdo", True)
-                                    self.is_mock = mock_flag or ("--mock" in sys.argv)
-                                    logger.info(f"💻 Ejecutor Izquierdo: Estado mock actualizado a {self.is_mock}")
+                                self.is_mock = read_mock_flag("ejecutor_izquierdo") or ("--mock" in sys.argv)
+                                logger.info(f"💻 Ejecutor Izquierdo: Estado mock actualizado a {self.is_mock}")
                             except Exception as ex:
                                 logger.warning(f"Failed to reload mock settings in Ejecutor: {ex}")
                         elif data.get("command") == "shutdown":

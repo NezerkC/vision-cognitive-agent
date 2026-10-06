@@ -50,7 +50,7 @@ This file is the single source of truth for the work loop. Each loop iteration c
 
 ## Phase 1: Remove production mocks
 
-- [ ] 1.1 Missing `modos_mock` keys mean real mode (`core/orchestrator.py:84`, `core/main.py:106`, daemon reload code in `sentidos/oido_parietal.py:212`, `sentidos/habla_parietal.py:220`, `sentidos/vision_parietal.py:204`, `cognitivo/ejecutor_izquierdo.py:270`). Set every `config/arranque.yaml` mock flag to false.
+- [x] 1.1 Missing `modos_mock` keys mean real mode (`core/orchestrator.py:84`, `core/main.py:106`, daemon reload code in `sentidos/oido_parietal.py:212`, `sentidos/habla_parietal.py:220`, `sentidos/vision_parietal.py:204`, `cognitivo/ejecutor_izquierdo.py:270`). Set every `config/arranque.yaml` mock flag to false.
 - [ ] 1.2 Embeddings: remove the MD5/SHA fallbacks in `memoria/lancedb_manager.py` (55-94). Raise a clear error when the model cannot load. Record embedder id and dimension.
 - [ ] 1.3 `cognitivo/llm_router.py`: errors raise and publish a failed status (351, 394-396). Remove the `mock: true` canned answers (124-128; `cognitivo/orquestador_graph.py` 118-124, 165-169, 219-238, 300-301).
 - [ ] 1.4 `cognitivo/llm_router.py`: forward `image_base64` as a multimodal message to the model set in `modelo_vision` (179-186, 316-327).
@@ -117,3 +117,4 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - 0.5 Chat tool access goes through `decideToolAccess` (Vitest-covered): reads and writes ask for approval unless the level is autonomous, read-only denies writes and PowerShell, PowerShell relies on the native Rust confirmation, unknown tools are denied. Vision Studio now has a Vitest `npm test` script.
 - 0.6 Auto-training quarantines LLM-written tool code in `memoria_activa/skills_propuestas/*.py.txt` (validated CLI name, must parse and define a `@tool` function) instead of writing into `cognitivo/skills`; the CLI scan skips CLIs with a pending proposal; the 9 generated mock skill files are deleted.
 - Phase 0 PR: https://github.com/NezerkC/vision-cognitive-agent/pull/2
+- 1.1 `core/arranque.py` is the single reader of `config/arranque.yaml`: a missing file or key means real mode. The orchestrator, watchdog, daemon reloads and the gateway defaults use it, and the shipped config runs every service for real.

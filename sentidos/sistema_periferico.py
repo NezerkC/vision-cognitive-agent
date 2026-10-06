@@ -697,12 +697,12 @@ async def get_config_arranque():
     defaults = {
         "modos_mock": {
             "vision_parietal": False,
-            "oido_parietal": True,
-            "imaginacion_occipital": True,
-            "ejecutor_izquierdo": True,
-            "lancedb_manager": True,
-            "protocolo_intriga": True,
-            "habla_parietal": True,
+            "oido_parietal": False,
+            "imaginacion_occipital": False,
+            "ejecutor_izquierdo": False,
+            "lancedb_manager": False,
+            "protocolo_intriga": False,
+            "habla_parietal": False,
         }
     }
     try:

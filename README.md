@@ -77,7 +77,8 @@ implementations in `core/adapters/`.
 - `.env` is loaded by the watchdog for every service; variables already set in your shell take precedence.
 - Keys saved from the HUD settings go to `.env` and apply to the other services on their next restart.
 - `config/llm_router.yaml` picks the routing strategy and models; `api_key` accepts `${VAR}` or `VAR` references.
-- `config/arranque.yaml` holds the mock switches; `config/memory_tiering.yaml` the hot/cold memory stores.
+- `config/arranque.yaml` holds the mock switches. Every service runs for real unless its flag is `true` or `--mock`
+  is passed; a missing key means real mode. `config/memory_tiering.yaml` holds the hot/cold memory stores.
 
 ## Development
 

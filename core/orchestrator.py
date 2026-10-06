@@ -12,8 +12,6 @@ import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-import yaml
-
 from cognitivo.contexto_derecho import ContextoDerecho
 from cognitivo.ejecutor_izquierdo import EjecutorIzquierdo
 
@@ -24,6 +22,7 @@ from cognitivo.web_search import WebSearchDaemon
 from core.adapters.event_bus_inmemory import AsyncInMemoryEventBus
 from core.adapters.event_bus_tcp_bridge import TCPEventBusBridge
 from core.amigdala import Amigdala
+from core.arranque import is_mock, load_modos_mock
 from daemons.pineal_daemon import PinealDaemon
 from memoria.hipocampo import Hipocampo
 from memoria.lancedb_manager import LanceDBManager
@@ -65,23 +64,12 @@ class BrainstemOrchestrator:
         self.project_root = os.path.dirname(script_dir)
 
         # Load startup settings
-        self.modos_mock: dict[str, bool] = {}
-        arranque_path = os.path.join(self.project_root, "config", "arranque.yaml")
-        if os.path.exists(arranque_path):
-            try:
-                with open(arranque_path, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f)
-                    if cfg and "modos_mock" in cfg:
-                        self.modos_mock = cfg["modos_mock"]
-                logger.info(f"Loaded startup configuration: {self.modos_mock}")
-            except Exception as e:
-                logger.error(f"Failed to load config/arranque.yaml: {e}")
+        self.modos_mock: dict[str, bool] = load_modos_mock(self.project_root)
+        logger.info(f"Loaded startup configuration: {self.modos_mock}")
 
     def is_service_mock(self, service_key: str) -> bool:
-        """Determines if a service should run in mock mode."""
-        if self.use_mock:
-            return True
-        return self.modos_mock.get(service_key, True)
+        """Mock only when --mock is set or the service is explicitly flagged in config/arranque.yaml."""
+        return is_mock(self.modos_mock, service_key, force=self.use_mock)
 
     async def start(self) -> None:
         """

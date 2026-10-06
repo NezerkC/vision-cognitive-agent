@@ -207,19 +207,10 @@ class HablaParietal:
                         elif action == "reload_arranque":
                             # We can reload mock mode from config if it changed
                             try:
-                                arr_path = os.path.join(
-                                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                    "config",
-                                    "arranque.yaml",
-                                )
-                                if os.path.exists(arr_path):
-                                    with open(arr_path, encoding="utf-8") as f:
-                                        import yaml
+                                from core.arranque import read_mock_flag
 
-                                        cfg = yaml.safe_load(f)
-                                    mock_flag = cfg.get("modos_mock", {}).get("habla_parietal", True)
-                                    self.force_mock = mock_flag or ("--mock" in sys.argv)
-                                    logger.info(f"Updated mock mode: {self.force_mock}")
+                                self.force_mock = read_mock_flag("habla_parietal") or ("--mock" in sys.argv)
+                                logger.info(f"Updated mock mode: {self.force_mock}")
                             except Exception as ex:
                                 logger.warning(f"Failed to reload mock settings: {ex}")
 
@@ -229,21 +220,9 @@ class HablaParietal:
 
 
 if __name__ == "__main__":
-    import yaml
+    from core.arranque import read_mock_flag
 
-    mock_flag = "--mock" in sys.argv
-
-    if not mock_flag:
-        try:
-            arr_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "arranque.yaml"
-            )
-            if os.path.exists(arr_path):
-                with open(arr_path, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f)
-                mock_flag = cfg.get("modos_mock", {}).get("habla_parietal", True)
-        except Exception:
-            pass
+    mock_flag = "--mock" in sys.argv or read_mock_flag("habla_parietal")
 
     habla = HablaParietal(force_mock=mock_flag)
     try:

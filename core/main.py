@@ -7,7 +7,6 @@ import sys
 import time
 from collections.abc import Mapping, MutableMapping
 
-import yaml
 from dotenv import dotenv_values
 
 # Relayed service output (progress bars, emojis) may not fit the console codec (cp1252 on Windows).
@@ -87,24 +86,18 @@ class BrainstemWatchdog:
             logger.warning(f"No local .venv found. Defaulting to: {venv_python}")
         self.python_executable = venv_python
 
-        # Load startup configuration from config/arranque.yaml if it exists
-        arranque_path = os.path.join(project_root, "config", "arranque.yaml")
-        modos_mock = {}
-        if os.path.exists(arranque_path):
-            try:
-                with open(arranque_path, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f)
-                    if cfg and "modos_mock" in cfg:
-                        modos_mock = cfg["modos_mock"]
-                logger.info(f"Loaded startup configuration: {modos_mock}")
-            except Exception as e:
-                logger.error(f"Failed to load config/arranque.yaml: {e}")
+        # Startup switches from config/arranque.yaml; unlisted services run for real.
+        # core/main.py also runs as a script, so make the project importable first.
+        if PROJECT_ROOT not in sys.path:
+            sys.path.insert(0, PROJECT_ROOT)
+        from core.arranque import is_mock, load_modos_mock
+
+        modos_mock = load_modos_mock(project_root)
+        logger.info(f"Loaded startup configuration: {modos_mock}")
 
         def get_args(service_name: str, yaml_key: str) -> list[str]:
-            # CLI --mock flag forces all modes to mock.
-            # Otherwise, read from modos_mock (defaulting to True if key doesn't exist).
-            is_mock = use_mock_db or modos_mock.get(yaml_key, True)
-            return ["--mock"] if is_mock else []
+            # The --mock CLI flag forces every service into mock mode.
+            return ["--mock"] if is_mock(modos_mock, yaml_key, force=use_mock_db) else []
 
         self.services = {
             "broker": {"path": os.path.join(script_dir, "broker_eventos.py"), "args": []},
