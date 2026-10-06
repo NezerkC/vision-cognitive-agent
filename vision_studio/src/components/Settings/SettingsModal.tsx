@@ -365,24 +365,24 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       >
                         <option value="ask">🛡️ Pedir Confirmación (Recomendado - Human in the Loop)</option>
                         <option value="read_only">🔒 Solo Lectura (Búsqueda y lectura de archivos sin edición/ejecución)</option>
-                        <option value="auto">⚡ Autónomo Total (Ejecución libre de escrituras y PowerShell)</option>
+                        <option value="auto">⚡ Autónomo (Lectura y escritura libres en el proyecto abierto)</option>
                       </select>
                     </label>
 
                     <div className="text-[11px] text-[#9a9a9a] leading-relaxed bg-[#1a1a1c] p-3 rounded border border-[#3c3c3e]">
                       {settings.permissionLevel === 'ask' && (
                         <span className="text-amber-400">
-                          <strong>Modo Seguro (Human-in-the-Loop):</strong> El agente te mostrará un modal de confirmación antes de editar archivos o ejecutar PowerShell para que apruebes cada acción.
+                          <strong>Modo Seguro (Human-in-the-Loop):</strong> El agente te mostrará un modal de confirmación antes de leer o editar archivos para que apruebes cada acción. Los comandos de PowerShell siempre piden confirmación en un diálogo nativo.
                         </span>
                       )}
                       {settings.permissionLevel === 'read_only' && (
                         <span className="text-blue-400">
-                          <strong>Modo Solo Lectura:</strong> El agente podrá inspeccionar archivos y realizar búsquedas web, pero la edición de archivos y ejecución de scripts estará bloqueada.
+                          <strong>Modo Solo Lectura:</strong> El agente podrá realizar búsquedas web e inspeccionar archivos con tu aprobación, pero la edición de archivos y la ejecución de scripts estarán bloqueadas.
                         </span>
                       )}
                       {settings.permissionLevel === 'auto' && (
                         <span className="text-rose-400">
-                          <strong>Modo Autónomo:</strong> El agente ejecutará cambios en archivos y comandos de PowerShell de forma directa sin solicitar confirmación previa.
+                          <strong>Modo Autónomo:</strong> El agente leerá y editará archivos del proyecto abierto sin solicitar confirmación previa. Los comandos de PowerShell siguen pidiendo confirmación en un diálogo nativo.
                         </span>
                       )}
                     </div>

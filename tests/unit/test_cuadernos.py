@@ -255,3 +255,67 @@ async def test_add_fuente_keeps_uploaded_file_inside_notebook_dir(cuadernos_mgr,
     assert fuente["filename"] == "escape.txt"
     assert not (tmp_path / "escape.txt").exists()
     assert (tmp_path / "sources" / nb["id"] / "escape.txt").read_bytes() == b"payload"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("notebook_id", ["..\\..\\escape", "../../escape", "no-existe"])
+async def test_chat_stream_rejects_unknown_notebook_before_writing(
+    cuadernos_mgr, fake_web_search, tmp_path, notebook_id
+):
+    with pytest.raises(cm.NotebookNotFoundError):
+        async for _ in cuadernos_mgr.chat_cuaderno_stream(
+            notebook_id=notebook_id, query="traversal probe zzz", search_web=True
+        ):
+            pass
+
+    assert not list(tmp_path.parent.rglob("Investigacion_Web_traversal_probe_zzz*"))
+
+
+@pytest.mark.asyncio
+async def test_add_fuente_rejects_unknown_notebook(cuadernos_mgr, tmp_path):
+    with pytest.raises(cm.NotebookNotFoundError):
+        await cuadernos_mgr.add_fuente("..\\..\\escape", "a.txt", b"payload", index_in_background=False)
+
+    assert not list(tmp_path.parent.rglob("a.txt"))
+
+
+def test_delete_cuaderno_never_removes_dirs_outside_sources(cuadernos_mgr, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    metadata = cuadernos_mgr._load_metadata()
+    metadata["../outside"] = {"id": "../outside", "title": "x", "sources": [], "notes": []}
+    cuadernos_mgr._save_metadata(metadata)
+
+    with pytest.raises(cm.NotebookNotFoundError):
+        cuadernos_mgr.delete_cuaderno("../outside")
+
+    assert outside.exists()
+
+
+def test_chat_endpoint_returns_404_for_unknown_notebook(cuadernos_mgr, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import sentidos.sistema_periferico as gateway
+
+    monkeypatch.setattr(gateway, "_cuadernos_mgr", cuadernos_mgr)
+    client = TestClient(gateway.app)
+
+    resp = client.post("/api/cuadernos/..%5C..%5Cescape/chat", json={"query": "hola", "search_web": True})
+
+    assert resp.status_code == 404
+
+
+def test_upload_endpoint_rejects_oversized_source(cuadernos_mgr, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    import sentidos.sistema_periferico as gateway
+
+    monkeypatch.setattr(gateway, "_cuadernos_mgr", cuadernos_mgr)
+    monkeypatch.setenv("VISION_MAX_UPLOAD_BYTES", "10")
+    nb = cuadernos_mgr.create_cuaderno("Grande", "Limite de subida")
+
+    resp = TestClient(gateway.app).post(f"/api/cuadernos/{nb['id']}/fuentes", files={"file": ("big.txt", b"x" * 11)})
+
+    assert resp.status_code == 413
+    assert cuadernos_mgr.list_cuadernos()[0]["sources"] == []
+    assert not (tmp_path / "sources" / nb["id"]).exists()

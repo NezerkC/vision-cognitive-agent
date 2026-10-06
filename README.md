@@ -72,6 +72,7 @@ implementations in `core/adapters/`.
 | `OPENROUTER_API_KEY` | LLM router fallback when Ollama fails, notebook syntheses and chat |
 | `TAVILY_API_KEY` | Web search and the curiosity protocol (`protocolo_intriga`) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LMSTUDIO_API_KEY` | LiteLLM, when the active strategy uses those providers |
+| `VISION_MAX_UPLOAD_BYTES` | Gateway upload limit in bytes (default 52428800, 50 MB); larger uploads get HTTP 413 |
 
 - `.env` is loaded by the watchdog for every service; variables already set in your shell take precedence.
 - Keys saved from the HUD settings go to `.env` and apply to the other services on their next restart.
@@ -87,6 +88,7 @@ implementations in `core/adapters/`.
 | Lint (whole repo, like CI) | `ruff check .` |
 | Format check | `ruff format --check .` |
 | Git hooks | `pre-commit install` |
+| Studio unit tests | `cd vision_studio; npm test` |
 | Studio type-check and build | `cd vision_studio; npm run build` |
 
 - Ruff is pinned to `0.15.22` (CI, pre-commit and dev deps). Without installing it: `uvx ruff@0.15.22 check ...`.
@@ -116,6 +118,18 @@ Folders are named after the brain region each part plays:
   (`sentidos/seguridad_local.py`). Credentials are returned masked and only known provider keys can be written.
 - The event bus TCP endpoint (bridge or broker) accepts JSON-object lines only and drops any other connection, so web
   pages cannot inject events.
+- Uploads are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES`. Notebook ids are checked against
+  the notebook metadata before any file is written, so a crafted id cannot write outside the notebook's folder.
+- The file tree and file search only cover the folder opened through `/api/workspace/open` (filesystem roots are
+  refused, invalid paths return 404 instead of falling back to the repository). `clone_git` accepts only https/ssh
+  remotes and passes them after `--`, so a URL cannot smuggle git options.
+- Vision Studio's Rust commands only touch the workspace registered through `set_workspace`: paths are canonicalized
+  and must stay inside it, reads are capped at 10 MB, and every PowerShell command needs confirmation in a native
+  dialog that script in the webview cannot skip. Each command is granted explicitly in
+  `vision_studio/src-tauri/capabilities/default.json`, and the app ships a Content Security Policy.
+- Auto-training never writes code into the package: tool code the LLM writes for a detected CLI is kept only if it
+  parses and defines a `@tool` function, and it goes to `memoria_activa/skills_propuestas/<cli>_tool.py.txt` for a
+  human to review before moving it into `cognitivo/skills/`.
 - `ejecutor_izquierdo` runs nothing on its own: every keyboard/mouse or shell action waits for an approve/reject ticket
   in the HUD (`canal.ejecucion.aprobacion`). Pending requests expire after 5 minutes and can be decided only once.
 - `.env`, `memoria_activa/` and `archivo_profundo/` are git-ignored; never commit keys.

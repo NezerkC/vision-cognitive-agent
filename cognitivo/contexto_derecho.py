@@ -8,6 +8,8 @@ import time
 
 import psutil
 
+from cognitivo.propuestas_skills import has_proposal
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -169,7 +171,8 @@ class ContextoDerecho:
                 except Exception:
                     pass
 
-                if not os.path.exists(tool_path):
+                # A pending proposal waits for human review; do not ask the LLM to write it again.
+                if not os.path.exists(tool_path) and not has_proposal(cli):
                     logger.info(
                         f"⚡ [Zapatilla Eléctrica] Detected installed CLI '{cli}' without matching skill script. Triggering auto-training..."
                     )

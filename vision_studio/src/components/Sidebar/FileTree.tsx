@@ -61,18 +61,29 @@ export default function FileTree() {
   const [treeData, setTreeData] = useState<FileNode[]>([]);
   const [workspaceName, setWorkspaceName] = useState('Workspace');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  // Opening the folder makes it the gateway's active workspace; the tree and file search stay inside it.
   const fetchWorkspaceTree = async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const url = `http://127.0.0.1:8000/api/workspace/tree?path=${encodeURIComponent(currentWorkspacePath)}`;
-      const res = await fetch(url);
+      const res = await fetch('http://127.0.0.1:8000/api/workspace/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: currentWorkspacePath }),
+      });
       const data = await res.json();
-      if (data.status === 'success') {
-        setTreeData(data.tree);
-        setWorkspaceName(data.workspace_name);
+      if (!res.ok) {
+        setTreeData([]);
+        setError(data.detail ?? `Error ${res.status} al abrir la carpeta.`);
+        return;
       }
+      setTreeData(data.tree);
+      setWorkspaceName(data.workspace_name);
     } catch (err) {
+      setTreeData([]);
+      setError('No se pudo conectar con el gateway en 127.0.0.1:8000.');
       console.error('Error loading workspace tree:', err);
     } finally {
       setIsLoading(false);
@@ -101,7 +112,9 @@ export default function FileTree() {
 
       {/* Tree Nodes */}
       <div className="space-y-0.5 overflow-y-auto custom-scrollbar">
-        {treeData.length === 0 && !isLoading ? (
+        {error ? (
+          <div className="text-[11px] text-red-400 p-3 text-center">{error}</div>
+        ) : treeData.length === 0 && !isLoading ? (
           <div className="text-[11px] text-gray-500 italic p-3 text-center">
             Carpeta vacía o sin archivos visibles.
           </div>

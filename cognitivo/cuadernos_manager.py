@@ -40,6 +40,21 @@ def clean_web_text(text: str) -> str:
     return clean
 
 
+class NotebookNotFoundError(ValueError):
+    """The notebook id does not name an existing notebook."""
+
+
+def _notebook_sources_dir(notebook_id: str, metadata: dict[str, dict]) -> str:
+    """Source directory of an existing notebook. Never resolves outside SOURCES_DIR."""
+    if notebook_id not in metadata:
+        raise NotebookNotFoundError(f"Cuaderno {notebook_id} no existe.")
+    root = os.path.realpath(SOURCES_DIR)
+    path = os.path.realpath(os.path.join(root, notebook_id))
+    if os.path.dirname(path) != root:
+        raise NotebookNotFoundError(f"Cuaderno {notebook_id} no existe.")
+    return path
+
+
 class CuadernosManager:
     def __init__(self):
         self.embedder = BGEM3Embedder(force_mock=False)
@@ -120,10 +135,15 @@ class CuadernosManager:
         logger.info(f"Cuaderno creado: '{title}' ({n_id})")
         return new_notebook
 
+    def ensure_cuaderno(self, notebook_id: str) -> None:
+        """Raise NotebookNotFoundError unless notebook_id names an existing notebook."""
+        _notebook_sources_dir(notebook_id, self._load_metadata())
+
     def delete_cuaderno(self, notebook_id: str) -> bool:
         metadata = self._load_metadata()
         if notebook_id not in metadata:
             return False
+        n_sources_dir = _notebook_sources_dir(notebook_id, metadata)
 
         del metadata[notebook_id]
         self._save_metadata(metadata)
@@ -135,7 +155,6 @@ class CuadernosManager:
             logger.warning(f"Failed to delete LanceDB chunks for notebook {notebook_id}: {e}")
 
         # Delete source files
-        n_sources_dir = os.path.join(CUADERNOS_DIR, "sources", notebook_id)
         if os.path.exists(n_sources_dir):
             import shutil
 
@@ -153,15 +172,13 @@ class CuadernosManager:
         index_in_background: bool = True,
     ) -> dict:
         metadata = self._load_metadata()
-        if notebook_id not in metadata:
-            raise ValueError(f"Cuaderno {notebook_id} no existe.")
+        n_sources_dir = _notebook_sources_dir(notebook_id, metadata)
 
         # Uploaded names are untrusted: keep only the base name so writes stay inside the notebook dir.
         filename = os.path.basename(filename.replace("\\", "/"))
         if filename in ("", ".", ".."):
             raise ValueError("Nombre de archivo inválido.")
 
-        n_sources_dir = os.path.join(CUADERNOS_DIR, "sources", notebook_id)
         os.makedirs(n_sources_dir, exist_ok=True)
         file_path = os.path.join(n_sources_dir, filename)
 
@@ -403,6 +420,8 @@ class CuadernosManager:
         response_style: str = "conciso",
         provider_api_key: str | None = None,
     ) -> AsyncGenerator[str, None]:
+        # Validate before the first yield so an unknown or crafted id never reaches the filesystem.
+        n_sources_dir = _notebook_sources_dir(notebook_id, self._load_metadata())
         clean_query = query.replace("@web", "").strip() if query.strip().startswith("@web") else query.strip()
 
         if search_web or query.strip().startswith("@web") or max_web_results > 10:
@@ -423,7 +442,6 @@ class CuadernosManager:
                 if gathered_texts:
                     combined_content = "\n\n---\n\n".join(gathered_texts)
                     safe_filename = f"Investigacion_Web_{re.sub(r'[^a-zA-Z0-9_]', '_', clean_query)[:25]}.txt"
-                    n_sources_dir = os.path.join(CUADERNOS_DIR, "sources", notebook_id)
                     os.makedirs(n_sources_dir, exist_ok=True)
                     file_path = os.path.join(n_sources_dir, safe_filename)
                     with open(file_path, "wb") as f:

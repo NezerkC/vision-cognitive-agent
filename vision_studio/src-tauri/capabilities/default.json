@@ -5,6 +5,11 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "opener:default",
+    "allow-web-search-duckduckgo",
+    "allow-set-workspace",
+    "allow-read-file-content",
+    "allow-write-file-content",
+    "allow-execute-powershell-command"
   ]
 }

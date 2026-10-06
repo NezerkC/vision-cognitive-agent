@@ -1,6 +1,8 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Panel, Group, useDefaultLayout } from "react-resizable-panels";
 import { useSettingsStore } from './stores/useSettingsStore';
+import { useNotificationStore } from './stores/useNotificationStore';
 import SettingsModal from './components/Settings/SettingsModal';
 import ToastContainer from './components/Notifications/ToastContainer';
 import TitleBar from './components/Layout/TitleBar';
@@ -20,6 +22,15 @@ export default function App() {
   const setSettingsOpen = useSettingsStore((state) => state.setSettingsModalOpen);
   const isTerminalOpen = useSettingsStore((state) => state.isTerminalOpen);
   const activeSidebarTab = useSettingsStore((state) => state.activeSidebarTab);
+  const currentWorkspacePath = useSettingsStore((state) => state.currentWorkspacePath);
+  const addToast = useNotificationStore((state) => state.addToast);
+
+  // The Rust file and shell commands only act inside the workspace registered here.
+  useEffect(() => {
+    invoke<string>('set_workspace', { path: currentWorkspacePath }).catch((err) =>
+      addToast({ title: 'Proyecto no disponible', message: String(err), type: 'error' })
+    );
+  }, [currentWorkspacePath, addToast]);
 
   // Persist panel layouts across reloads (localStorage); replaces the pre-v4 autoSaveId prop.
   const mainLayout = useDefaultLayout({ id: 'vision-layout' });

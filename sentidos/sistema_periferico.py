@@ -3,6 +3,7 @@ import base64
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -18,8 +19,9 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 
-from cognitivo.cuadernos_manager import CuadernosManager
+from cognitivo.cuadernos_manager import CuadernosManager, NotebookNotFoundError
 from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
+from sentidos.limites_subida import read_upload_limited
 from sentidos.seguridad_local import accept_local_websocket, install_local_origin_guards
 
 # Configure logging
@@ -758,9 +760,9 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
     logger.info(f"Learning API: Ingesting file '{filename}' of type '{content_type}'")
 
     # 1. Save upload to temp file
+    content = await read_upload_limited(file)
     suffix = os.path.splitext(filename)[1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
         tmp.write(content)
         temp_file_path = tmp.name
 
@@ -1058,7 +1060,8 @@ async def search_files(q: str = ""):
     ignore_folders = {".git", ".venv", "node_modules", ".atl", ".opencode", "__pycache__"}
 
     count = 0
-    for root, dirs, files in os.walk(PROJECT_ROOT):
+    workspace_root = _active_workspace
+    for root, dirs, files in os.walk(workspace_root):
         dirs[:] = [d for d in dirs if d not in ignore_folders]
         for file in files:
             if query in file.lower():
@@ -1067,7 +1070,7 @@ async def search_files(q: str = ""):
                     size = os.path.getsize(full_path)
                 except Exception:
                     size = 0
-                relative_path = os.path.relpath(full_path, PROJECT_ROOT)
+                relative_path = os.path.relpath(full_path, workspace_root)
                 results.append(
                     {
                         "nombre": file,
@@ -1115,9 +1118,10 @@ async def upload_sensorial(file: UploadFile = File(...)):
     dest_path = os.path.join(TEMP_UPLOAD_DIR, safe_filename)
 
     logger.info(f"Uploading file: {safe_filename} to {dest_path}")
+    content = await read_upload_limited(file)
     try:
         with open(dest_path, "wb") as f:
-            f.write(await file.read())
+            f.write(content)
 
         # Publish event
         file_payload = {"ruta_local": os.path.abspath(dest_path), "nombre": safe_filename, "timestamp": time.time()}
@@ -1303,7 +1307,10 @@ async def api_investigar_cuaderno(request: Request):
 
 @app.delete("/api/cuadernos/{notebook_id}")
 async def api_delete_cuaderno(notebook_id: str):
-    success = (await get_cuadernos_mgr()).delete_cuaderno(notebook_id)
+    try:
+        success = (await get_cuadernos_mgr()).delete_cuaderno(notebook_id)
+    except NotebookNotFoundError:
+        success = False
     if not success:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Cuaderno no encontrado"})
     return {"status": "success", "message": f"Cuaderno {notebook_id} eliminado"}
@@ -1311,10 +1318,12 @@ async def api_delete_cuaderno(notebook_id: str):
 
 @app.post("/api/cuadernos/{notebook_id}/fuentes")
 async def api_add_fuente_cuaderno(notebook_id: str, file: UploadFile = File(...), description: str = Form(None)):
+    content = await read_upload_limited(file)
     try:
-        content = await file.read()
         fuente = await (await get_cuadernos_mgr()).add_fuente(notebook_id, file.filename, content, description)
         return {"status": "success", "fuente": fuente}
+    except NotebookNotFoundError as e:
+        return JSONResponse(status_code=404, content={"status": "error", "message": str(e)})
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
 
@@ -1333,6 +1342,11 @@ async def api_generar_sintesis_cuaderno(notebook_id: str, request: Request):
 
 @app.post("/api/cuadernos/{notebook_id}/chat")
 async def api_chat_cuaderno(notebook_id: str, request: Request):
+    mgr = await get_cuadernos_mgr()
+    try:
+        mgr.ensure_cuaderno(notebook_id)
+    except NotebookNotFoundError as e:
+        return JSONResponse(status_code=404, content={"status": "error", "message": str(e)})
     body = await request.json()
     query = body.get("query", "")
     history = body.get("history", [])
@@ -1346,7 +1360,7 @@ async def api_chat_cuaderno(notebook_id: str, request: Request):
     response_style = body.get("response_style", "conciso")
 
     async def stream_generator():
-        async for chunk in (await get_cuadernos_mgr()).chat_cuaderno_stream(
+        async for chunk in mgr.chat_cuaderno_stream(
             notebook_id=notebook_id,
             query=query,
             history=history,
@@ -1388,41 +1402,88 @@ def build_dir_tree(dir_path: str, max_depth: int = 3, current_depth: int = 0) ->
     return items
 
 
-@app.get("/api/workspace/tree")
-async def api_workspace_tree(path: str | None = None):
-    target_path = path or PROJECT_ROOT
-    if not os.path.exists(target_path):
-        target_path = PROJECT_ROOT
-    tree = build_dir_tree(target_path)
+# The folder the user opened. File tree and file search never leave it; it changes only through
+# /api/workspace/open or a successful clone.
+_active_workspace: str = PROJECT_ROOT
+
+_GIT_URL_PATTERN = re.compile(r"^(https://|ssh://|git@[\w.-]+:)[\w.@:/~-]+$")
+_REPO_FOLDER_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _workspace_response(path: str) -> dict:
     return {
         "status": "success",
-        "workspace_path": target_path,
-        "workspace_name": os.path.basename(target_path) or target_path,
-        "tree": tree,
+        "workspace_path": path,
+        "workspace_name": os.path.basename(path) or path,
+        "tree": build_dir_tree(path),
     }
+
+
+def _inside_active_workspace(path: str) -> bool:
+    root = os.path.normcase(os.path.realpath(_active_workspace))
+    target = os.path.normcase(os.path.realpath(path))
+    return os.path.commonpath([root, target]) == root
+
+
+@app.post("/api/workspace/open")
+async def api_workspace_open(request: Request):
+    global _active_workspace
+    body = await request.json()
+    path = os.path.realpath(str(body.get("path", "")).strip() or ".")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail=f"La carpeta no existe: {path}")
+    if not os.path.isdir(path):
+        raise HTTPException(status_code=400, detail=f"No es una carpeta: {path}")
+    if os.path.dirname(path) == path:
+        raise HTTPException(status_code=400, detail="No se puede abrir la raíz del disco como proyecto.")
+    _active_workspace = path
+    return _workspace_response(path)
+
+
+@app.get("/api/workspace/tree")
+async def api_workspace_tree(path: str | None = None):
+    target_path = path or _active_workspace
+    if not _inside_active_workspace(target_path):
+        raise HTTPException(status_code=403, detail="La ruta está fuera del proyecto abierto.")
+    if not os.path.isdir(target_path):
+        raise HTTPException(status_code=404, detail=f"La carpeta no existe: {target_path}")
+    return _workspace_response(target_path)
 
 
 @app.post("/api/workspace/clone_git")
 async def api_workspace_clone_git(request: Request):
+    global _active_workspace
     body = await request.json()
     repo_url = body.get("repo_url", "").strip()
     if not repo_url:
         raise HTTPException(status_code=400, detail="repo_url es obligatorio")
+    # Only plain https/ssh remotes: a leading "-" would be parsed as a git option and other transports
+    # (ext::, file://) can run commands or read local repositories.
+    if not _GIT_URL_PATTERN.match(repo_url):
+        raise HTTPException(status_code=400, detail="repo_url debe ser una URL https://, ssh:// o git@host:repo")
 
-    folder_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
+    folder_name = repo_url.rstrip("/").split("/")[-1].split(":")[-1].removesuffix(".git")
+    if folder_name in ("", ".", "..") or not _REPO_FOLDER_PATTERN.match(folder_name):
+        raise HTTPException(status_code=400, detail="No se pudo derivar un nombre de carpeta válido de repo_url")
     target_dir = os.path.join(PROJECT_ROOT, "datos_crudos", folder_name)
     os.makedirs(os.path.dirname(target_dir), exist_ok=True)
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git", "clone", repo_url, target_dir, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            "git",
+            "clone",
+            "--",
+            repo_url,
+            target_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
             raise RuntimeError(stderr.decode("utf-8", errors="ignore"))
 
-        tree = build_dir_tree(target_dir)
-        return {"status": "success", "workspace_path": target_dir, "workspace_name": folder_name, "tree": tree}
+        _active_workspace = os.path.realpath(target_dir)
+        return _workspace_response(_active_workspace)
     except Exception as e:
         logger.error(f"Error en git clone: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})

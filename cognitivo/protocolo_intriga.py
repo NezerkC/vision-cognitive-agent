@@ -7,6 +7,8 @@ import time
 
 import aiohttp
 
+from cognitivo.propuestas_skills import is_valid_tool_code, save_proposal, validate_cli_name
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -159,49 +161,7 @@ class ProtocoloIntriga:
         Executes web search using formulated query and stores solution in LanceDB.
         """
         if request_id.startswith("capacitacion-tool-"):
-            parts = request_id.split("-")
-            cli_name = parts[2]
-            clean_code = response_text.strip()
-            if clean_code.startswith("```python"):
-                clean_code = clean_code[9:]
-            elif clean_code.startswith("```"):
-                clean_code = clean_code[3:]
-            if clean_code.endswith("```"):
-                clean_code = clean_code[:-3]
-            clean_code = clean_code.strip()
-
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            skills_dir = os.path.join(project_root, "cognitivo", "skills")
-            os.makedirs(skills_dir, exist_ok=True)
-            tool_path = os.path.join(skills_dir, f"{cli_name}_tool.py")
-
-            try:
-                with open(tool_path, "w", encoding="utf-8") as f:
-                    f.write(clean_code)
-                logger.info(f"🎉 [Capacitación] Nueva herramienta guardada físicamente en: {tool_path}")
-
-                save_payload = {
-                    "action": "publish",
-                    "topic": "canal.memoria",
-                    "data": {
-                        "action": "guardar",
-                        "text": f"Aprendí a usar la CLI '{cli_name}'. Se creó y registró la herramienta en '{tool_path}'. Código:\n{clean_code}",
-                        "coordenada_x": 2.0,
-                        "coordenada_y": 3.0,
-                        "coordenada_z": 0.0,
-                        "coordenada_w": 100.0,
-                        "escala_magnitud": "KB",
-                        "metadata": {"tipo": "auto_capacitacion", "cli_name": cli_name, "timestamp": time.time()},
-                    },
-                }
-                writer.write((json.dumps(save_payload) + "\n").encode("utf-8"))
-                await writer.drain()
-                logger.info(f"Learned tool index saved to LanceDB for {cli_name}.")
-                print(
-                    f"\n\033[92m[AUTO-CAPACITACIÓN COMPLETADA] Visión aprendió a controlar la CLI '{cli_name}' y registró su tool.\033[0m\n"
-                )
-            except Exception as e:
-                logger.error(f"Failed to write generated skill file: {e}")
+            await self._guardar_propuesta_herramienta(request_id, response_text, writer)
             return
 
         if not request_id.startswith("intriga-search-formulation-"):
@@ -245,7 +205,85 @@ class ProtocoloIntriga:
         except Exception as e:
             logger.error(f"Failed to store solution in LanceDB: {e}")
 
+    async def _guardar_propuesta_herramienta(self, request_id: str, response_text: str, writer):
+        """Quarantine LLM-written tool code for human review; it is never written into the package."""
+        # request_id is "capacitacion-tool-<cli_name>-<timestamp>"; CLI names may contain hyphens.
+        cli_part = request_id.removeprefix("capacitacion-tool-").rsplit("-", 1)[0]
+        try:
+            cli_name = validate_cli_name(cli_part)
+        except ValueError as e:
+            logger.warning(f"[Capacitación] Respuesta descartada: {e}")
+            return
+
+        clean_code = response_text.strip()
+        if clean_code.startswith("```python"):
+            clean_code = clean_code[9:]
+        elif clean_code.startswith("```"):
+            clean_code = clean_code[3:]
+        if clean_code.endswith("```"):
+            clean_code = clean_code[:-3]
+        clean_code = clean_code.strip()
+
+        if not is_valid_tool_code(clean_code):
+            logger.warning(
+                f"[Capacitación] El código generado para '{cli_name}' no define una herramienta @tool válida."
+            )
+            await self._publish(
+                writer,
+                "canal.sistema.anuncios",
+                {
+                    "mensaje": f"[CAPACITACIÓN] Se descartó la herramienta generada para '{cli_name}': no es código @tool válido.",
+                    "timestamp": time.time(),
+                },
+            )
+            return
+
+        try:
+            proposal = save_proposal(cli_name, clean_code)
+        except OSError as e:
+            logger.error(f"Failed to write tool proposal for {cli_name}: {e}")
+            return
+        logger.info(f"[Capacitación] Propuesta de herramienta para '{cli_name}' en cuarentena: {proposal}")
+
+        await self._publish(
+            writer,
+            "canal.memoria",
+            {
+                "action": "guardar",
+                "text": (
+                    f"Propuesta de herramienta para la CLI '{cli_name}' pendiente de revisión humana en '{proposal}'. "
+                    f"Código:\n{clean_code}"
+                ),
+                "coordenada_x": 2.0,
+                "coordenada_y": 3.0,
+                "coordenada_z": 0.0,
+                "coordenada_w": 100.0,
+                "escala_magnitud": "KB",
+                "metadata": {"tipo": "propuesta_herramienta", "cli_name": cli_name, "timestamp": time.time()},
+            },
+        )
+        await self._publish(
+            writer,
+            "canal.sistema.anuncios",
+            {
+                "mensaje": f"[CAPACITACIÓN] Herramienta propuesta para '{cli_name}'. Revísala en {proposal} antes de usarla.",
+                "timestamp": time.time(),
+            },
+        )
+
+    async def _publish(self, writer, topic: str, data: dict):
+        try:
+            writer.write((json.dumps({"action": "publish", "topic": topic, "data": data}) + "\n").encode("utf-8"))
+            await writer.drain()
+        except Exception as e:
+            logger.error(f"Failed to publish to {topic}: {e}")
+
     async def iniciar_protocolo_capacitacion(self, cli_name: str, writer):
+        try:
+            cli_name = validate_cli_name(cli_name)
+        except ValueError as e:
+            logger.warning(f"[Capacitación] Solicitud descartada: {e}")
+            return
         logger.info(f"🎓 [Protocolo de Capacitación] Iniciando auto-capacitación para la CLI: '{cli_name}'")
 
         # 1. Search Tavily for CLI documentation and examples
