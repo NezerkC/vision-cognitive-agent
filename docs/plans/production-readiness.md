@@ -97,7 +97,7 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 
 ## Phase 4: Imagination and dreams
 
-- [ ] 4.1 `IImageGenerator` port in `core/ports/`.
+- [x] 4.1 `IImageGenerator` port in `core/ports/`.
 - [ ] 4.2 ComfyUI adapter: queue with `POST /prompt`, wait through `/history`, download through `/view`. Configurable workflow and checkpoint. Raise when ComfyUI is unreachable.
 - [ ] 4.3 Google image adapter (Gemini API) behind a config key. Raise when the key is missing.
 - [ ] 4.4 Local-first routing between image adapters.
@@ -147,5 +147,7 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 ### Phase 3
 
 ### Phase 4
+
+- 4.1 `core/ports/image_generator.py` defines the `IImageGenerator` port (`generator_id`, `is_available()`, `generate(prompt, ImageOptions)` returning `GeneratedImage`). `ImageOptions` and `GeneratedImage` validate their fields (positive sizes and steps, non-empty raw bytes, an `image/*` MIME type, JSON-serializable metadata for memory, unknown keys rejected). `ImageGeneratorUnavailableError` and `ImageGenerationFailedError` carry the generator id and show their cause.
 
 ### Final summary
