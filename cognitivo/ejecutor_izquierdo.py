@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import os
+import signal
 import sys
 import time
 
@@ -25,6 +27,31 @@ RESULT_TOPIC = "canal.ejecucion.resultado"
 SUPPORTED_TOOLS = frozenset({"control_ui", "ejecutar_script"})
 # A request the human has not answered within this window can no longer be approved.
 PENDING_TTL_SECONDS = 300
+# Approved shell commands are killed (with everything they spawned) after this long.
+SCRIPT_TIMEOUT_SECONDS = 60
+
+
+async def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Kill a shell and its children: killing only the shell leaves the spawned command running."""
+    if process.returncode is not None:
+        return
+    try:
+        if sys.platform == "win32":
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill",
+                "/PID",
+                str(process.pid),
+                "/T",
+                "/F",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await killer.wait()
+        else:
+            os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, OSError) as e:
+        logger.warning(f"Could not kill process tree {process.pid}: {e}")
+    await process.wait()
 
 
 class EjecutorIzquierdo:
@@ -94,11 +121,18 @@ class EjecutorIzquierdo:
             logger.info("[MOCK MODE] Simulating shell command without execution.")
             return {"status": "success", "exit_code": 0, "stdout": "", "stderr": "", "detail": "Simulated (mock mode)"}
         try:
-            # We use shell execution to easily support cross-platform scripts
+            # We use shell execution to easily support cross-platform scripts. On POSIX the shell gets its own
+            # process group so a timeout can kill everything it spawned.
+            session = {} if sys.platform == "win32" else {"start_new_session": True}
             process = await asyncio.create_subprocess_shell(
-                command_str, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                command_str, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **session
             )
-            stdout, stderr = await process.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=SCRIPT_TIMEOUT_SECONDS)
+            except TimeoutError:
+                await _kill_process_tree(process)
+                logger.warning(f"Command exceeded {SCRIPT_TIMEOUT_SECONDS}s and was killed: {command_str}")
+                return {"status": "timeout", "detail": f"Command exceeded {SCRIPT_TIMEOUT_SECONDS}s and was killed."}
 
             stdout_str = stdout.decode("utf-8", errors="ignore")
             stderr_str = stderr.decode("utf-8", errors="ignore")

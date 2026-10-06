@@ -141,3 +141,30 @@ async def test_mock_mode_never_runs_a_real_shell(monkeypatch):
 
     assert result["status"] == "success"
     assert "simulated" in result["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_script_that_outlives_the_timeout_is_killed_with_its_children(monkeypatch, tmp_path):
+    """A hanging command must not block the executor forever (vault: 07-Seguridad/Agente Sandbox Aislamiento)."""
+    import sys
+    import time
+
+    import psutil
+
+    import cognitivo.ejecutor_izquierdo as ejecutor_module
+
+    monkeypatch.setattr(ejecutor_module, "SCRIPT_TIMEOUT_SECONDS", 1)
+    pid_file = tmp_path / "child.pid"
+    script = tmp_path / "hang.py"
+    script.write_text(
+        "\n".join(["import os, time", f"open(r'{pid_file}', 'w').write(str(os.getpid()))", "time.sleep(30)", ""]),
+        encoding="utf-8",
+    )
+
+    started = time.monotonic()
+    result = await EjecutorIzquierdo(is_mock=False).execute_script(f'"{sys.executable}" "{script}"')
+
+    assert result["status"] == "timeout"
+    assert time.monotonic() - started < 10
+    child_pid = int(pid_file.read_text())
+    assert not psutil.pid_exists(child_pid) or psutil.Process(child_pid).status() == psutil.STATUS_ZOMBIE
