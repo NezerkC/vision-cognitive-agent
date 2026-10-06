@@ -51,7 +51,7 @@ This file is the single source of truth for the work loop. Each loop iteration c
 ## Phase 1: Remove production mocks
 
 - [x] 1.1 Missing `modos_mock` keys mean real mode (`core/orchestrator.py:84`, `core/main.py:106`, daemon reload code in `sentidos/oido_parietal.py:212`, `sentidos/habla_parietal.py:220`, `sentidos/vision_parietal.py:204`, `cognitivo/ejecutor_izquierdo.py:270`). Set every `config/arranque.yaml` mock flag to false.
-- [ ] 1.2 Embeddings: remove the MD5/SHA fallbacks in `memoria/lancedb_manager.py` (55-94). Raise a clear error when the model cannot load. Record embedder id and dimension.
+- [x] 1.2 Embeddings: remove the MD5/SHA fallbacks in `memoria/lancedb_manager.py` (55-94). Raise a clear error when the model cannot load. Record embedder id and dimension.
 - [ ] 1.3 `cognitivo/llm_router.py`: errors raise and publish a failed status (351, 394-396). Remove the `mock: true` canned answers (124-128; `cognitivo/orquestador_graph.py` 118-124, 165-169, 219-238, 300-301).
 - [ ] 1.4 `cognitivo/llm_router.py`: forward `image_base64` as a multimodal message to the model set in `modelo_vision` (179-186, 316-327).
 - [ ] 1.5 Protocolo de Intriga: remove the fake-solution fallback (35-43, 60-65). Implement or remove the transcription approval flow (151-155, `gui/app.js` 364-378).
@@ -104,7 +104,7 @@ This file is the single source of truth for the work loop. Each loop iteration c
 
 ## Blockers
 
-(none yet)
+- Human step after merging phase 1: run `python -m memoria.reindex` in the main checkout. Its memory stores have no embedder record, likely hold hash vectors, and older unit tests wrote test rows into the real `memoria_activa`.
 
 ## Log
 
@@ -118,3 +118,4 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - 0.6 Auto-training quarantines LLM-written tool code in `memoria_activa/skills_propuestas/*.py.txt` (validated CLI name, must parse and define a `@tool` function) instead of writing into `cognitivo/skills`; the CLI scan skips CLIs with a pending proposal; the 9 generated mock skill files are deleted.
 - Phase 0 PR: https://github.com/NezerkC/vision-cognitive-agent/pull/2
 - 1.1 `core/arranque.py` is the single reader of `config/arranque.yaml`: a missing file or key means real mode. The orchestrator, watchdog, daemon reloads and the gateway defaults use it, and the shipped config runs every service for real.
+- 1.2 Embedder failures raise `EmbedderUnavailableError` (no hash/SHA fallback); explicit mock vectors are tagged `mock-hash`; every store records its embedder in `embedder.json` and refuses mismatches; `python -m memoria.reindex` re-embeds stored text; memory tests no longer write into the real `memoria_activa`.

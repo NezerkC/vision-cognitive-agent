@@ -77,6 +77,10 @@ implementations in `core/adapters/`.
 - `.env` is loaded by the watchdog for every service; variables already set in your shell take precedence.
 - Keys saved from the HUD settings go to `.env` and apply to the other services on their next restart.
 - `config/llm_router.yaml` picks the routing strategy and models; `api_key` accepts `${VAR}` or `VAR` references.
+- Embeddings come from BGE-M3 (downloaded from Hugging Face on first use). If it cannot load, the memory service
+  stops with an explicit error instead of falling back to fake vectors. Each vector store records its embedder in
+  `embedder.json` and refuses vectors from another one; after upgrading, or after switching embedders, run
+  `python -m memoria.reindex` once to recompute the stored vectors from their text.
 - `config/arranque.yaml` holds the mock switches. Every service runs for real unless its flag is `true` or `--mock`
   is passed; a missing key means real mode. `config/memory_tiering.yaml` holds the hot/cold memory stores.
 
