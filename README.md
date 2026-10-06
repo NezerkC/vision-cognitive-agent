@@ -1,7 +1,8 @@
 # Vision OS
 
-Local-first cognitive agent. A watchdog supervises 14 Python services that talk over a TCP event broker; a FastAPI
-gateway serves the web HUD on `127.0.0.1:8000`; a LangGraph orchestrator routes each request through memory
+Local-first cognitive agent. An orchestrator runs the cognitive, sensory and memory services on a shared event bus
+(in one process by default, or as supervised processes); a FastAPI gateway serves the web HUD on `127.0.0.1:8000`;
+a LangGraph orchestrator routes each request through memory
 (LanceDB), web search and LLMs (LiteLLM: Ollama, OpenRouter, LM Studio, ...). Vision Studio (Tauri + React) is an
 optional desktop IDE on top of the same gateway.
 
@@ -27,8 +28,8 @@ optional desktop IDE on top of the same gateway.
    python core\main.py --mock
    ```
 
-4. Open <http://127.0.0.1:8000>. Service health is written every 3 s to `config/.health_status.json`; all 14 services
-   should report `running`. Stop with `Ctrl+C`.
+4. Open <http://127.0.0.1:8000>. The console logs `Iniciando servicio...` once per service; a service that crashes is
+   restarted after 3 s. Stop with `Ctrl+C`.
 
 > The first start downloads the BGE-M3 embedding model (~2 GB) from Hugging Face in the background; the gateway
 > answers right away and notebooks become available once the model is loaded.
@@ -39,6 +40,7 @@ optional desktop IDE on top of the same gateway.
 |------|---------|----------|
 | Mock | `python core\main.py --mock` | Every service with a mock switch is simulated. Safe default for development. |
 | Configured | `python core\main.py` | Per-service switches in `config/arranque.yaml` (`false` = real). |
+| Multi-process | `python core\main.py --mock --multi-process` | Same services as separate supervised processes (health in `config/.health_status.json`). Combine with or without `--mock`. |
 | Desktop | `python start_all.py` | Backend plus Vision Studio dev (needs Node, Rust/cargo, MSVC build tools, WebView2; run `npm install` in `vision_studio/` once). |
 
 > **Real mode has side effects.** With the current `config/arranque.yaml`, `ejecutor_izquierdo` controls mouse and
@@ -49,14 +51,19 @@ optional desktop IDE on top of the same gateway.
 
 | Component | Where | Address |
 |-----------|-------|---------|
-| Event broker (JSON lines over TCP) | `core/broker_eventos.py` | `127.0.0.1:5000` |
+| Event bus TCP endpoint (JSON lines) | `core/adapters/event_bus_tcp_bridge.py` (default), `core/broker_eventos.py` (`--multi-process`) | `127.0.0.1:5000` |
 | Gateway: REST, WebSocket `/ws`, web HUD | `sentidos/sistema_periferico.py`, `gui/` | `127.0.0.1:8000` |
 | Vision Studio dev server | `vision_studio/` | `localhost:1420` |
 | Ollama (default routing strategy `locales`) | external | `localhost:11434` |
 | LM Studio / llama-server / ComfyUI | external, optional | `1234` / `8080` / `8188` |
 
-The watchdog (`core/main.py`) starts the broker first, then the rest, restarts crashed services with backoff, and runs
-every service from the project root with the project on `PYTHONPATH`.
+By default `core/main.py` runs `core/orchestrator.py`: every service as a supervised task in one process, on an
+in-memory event bus (`core/adapters/event_bus_inmemory.py`) exposed on port 5000 by a TCP bridge. With
+`--multi-process` the watchdog starts the TCP broker and each service as a separate process instead. Either way the
+services run from the project root with `.env` loaded.
+
+The core follows a hexagonal layout: domain entities in `core/domain/`, ports (`typing.Protocol`) in `core/ports/`,
+implementations in `core/adapters/`.
 
 ## Configuration
 
@@ -107,7 +114,8 @@ Folders are named after the brain region each part plays:
 
 - The gateway serves only local origins: CORS allowlist, cross-site write rejection and a WebSocket origin check
   (`sentidos/seguridad_local.py`). Credentials are returned masked and only known provider keys can be written.
-- The broker accepts JSON-object lines only and drops any other connection, so web pages cannot inject events.
+- The event bus TCP endpoint (bridge or broker) accepts JSON-object lines only and drops any other connection, so web
+  pages cannot inject events.
 - `ejecutor_izquierdo` runs nothing on its own: every keyboard/mouse or shell action waits for an approve/reject ticket
   in the HUD (`canal.ejecucion.aprobacion`). Pending requests expire after 5 minutes and can be decided only once.
 - `.env`, `memoria_activa/` and `archivo_profundo/` are git-ignored; never commit keys.
@@ -116,8 +124,10 @@ Folders are named after the brain region each part plays:
 
 - Approved shell commands run with your user's permissions; there is no allowlist beyond your own review.
 - The llama.cpp integration uses machine-specific paths (`sentidos/sistema_periferico.py`, `cognitivo/gestor_llamacpp.py`).
-- The hexagonal refactor (`refactor/clean-hexagonal-architecture`: in-process event bus, ports and adapters, single
-  runtime) is not merged yet.
+- The hexagonal migration is partial: there is no application (use case) layer yet, only the event bus ports have
+  adapters, and the gateway still calls LanceDB and the notebooks manager directly.
+- Events carry only `topic` and `data` (no id, type, timestamp or trace context), consumers are not idempotent in
+  general, and there is no dead-letter queue.
 
 ## License
 
