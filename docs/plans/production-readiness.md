@@ -44,8 +44,8 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - [x] 0.1 Notebook path traversal: validate that the notebook exists and that `notebook_id` is a safe id before any filesystem write in `chat_cuaderno_stream` (`cognitivo/cuadernos_manager.py` ~426-442).
 - [x] 0.2 Upload size limit on the notebook upload endpoint (`sentidos/sistema_periferico.py` ~1312-1319). Configurable, default 50 MB, respond 413.
 - [x] 0.3 File tree and `/api/archivos` endpoints: restrict them to the opened workspace and return an error for invalid paths instead of falling back to `PROJECT_ROOT` (`sentidos/sistema_periferico.py` ~1051-1086, ~1368-1396).
-- [ ] 0.4 Tauri commands: scope `read_file_content` and `write_file_content` to the active workspace (canonicalize, reject paths outside it, cap file size). Remove the arbitrary PowerShell command or gate it behind an allowlist plus explicit approval (`vision_studio/src-tauri/src/lib.rs` 19-62). Add an app-command permission manifest (`build.rs`) and a strict CSP (`tauri.conf.json`).
-- [ ] 0.5 The AI chat `read_file` and `write_file` tools require user approval (`vision_studio/src/components/Sidebar/SidebarChat.tsx` ~291-316).
+- [x] 0.4 Tauri commands: scope `read_file_content` and `write_file_content` to the active workspace (canonicalize, reject paths outside it, cap file size). Remove the arbitrary PowerShell command or gate it behind an allowlist plus explicit approval (`vision_studio/src-tauri/src/lib.rs` 19-62). Add an app-command permission manifest (`build.rs`) and a strict CSP (`tauri.conf.json`).
+- [ ] 0.5 The AI chat `read_file` and `write_file` tools require user approval (`vision_studio/src/components/Sidebar/SidebarChat.tsx` ~291-316). `execute_powershell` already gets a native confirmation in Rust since 0.4, so drop its duplicate in-app prompt.
 - [ ] 0.6 Protocolo de Intriga must never write generated code into the package (`cognitivo/protocolo_intriga.py` ~161-181). Delete the generated junk files `cognitivo/skills/{cargo,docker,gcloud,git,go,kubectl,npm,pip,python}_tool.py` after confirming nothing imports them.
 
 ## Phase 1: Remove production mocks
@@ -89,7 +89,7 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - [ ] 3.5 Create, rename, move, and delete to the recycle bin (`trash` crate) with confirmation, from a context menu.
 - [ ] 3.6 Watch external changes with the `notify` crate and refresh the tree from emitted events.
 - [ ] 3.7 Search in file contents, scoped to the workspace.
-- [ ] 3.8 Bundle Monaco locally (`loader.config({ monaco })`) so it works offline.
+- [ ] 3.8 Bundle Monaco locally (`loader.config({ monaco })`) so it works offline, then remove `https://cdn.jsdelivr.net` from the CSP in `tauri.conf.json`.
 - [ ] 3.9 Real PTY terminal (`portable-pty`) wired to xterm `onData` and resize.
 - [ ] 3.10 Git panel shows real `git status`, or is removed. Remove the hardcoded extensions list.
 
@@ -113,3 +113,4 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - 0.1 Notebook ids are validated against metadata and confined to `SOURCES_DIR` before any filesystem write; unknown notebooks return 404 from the chat, upload and delete endpoints.
 - 0.2 Gateway uploads (notebook sources, `/api/memoria/aprender`, `/upload_sensorial`) are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES` (default 50 MB).
 - 0.3 New `/api/workspace/open` sets the active workspace; tree and file search stay inside it (403 outside, 404 for missing paths, no fallback to the repo). `clone_git` only accepts https/ssh URLs passed after `--`. Vision Studio's FileTree opens the folder and shows gateway errors.
+- 0.4 Rust `set_workspace` state; `read_file_content`/`write_file_content` canonicalize paths and stay inside the workspace (reads capped at 10 MB); `execute_powershell_command` runs inside the workspace only after a native confirmation dialog; app-command permission manifest plus explicit grants; CSP (verified with no violations against the built frontend).
