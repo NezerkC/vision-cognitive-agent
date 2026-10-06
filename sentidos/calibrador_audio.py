@@ -41,7 +41,8 @@ def calculate_rms(audio_data: bytes) -> float:
     return rms
 
 
-def run_calibration():
+def run_calibration() -> int:
+    """Show live microphone levels. Returns a process exit code: 1 when the microphone cannot be read."""
     print("=" * 60)
     print("        VISION OS: CALIBRADOR SENSORIAL DE AUDIO (MIC)")
     print("=" * 60)
@@ -51,9 +52,7 @@ def run_calibration():
         print("Para instalarlo en Windows podés intentar:")
         print("  pip install pipwin")
         print("  pipwin install pyaudio")
-        print("\nEjecutando simulación de calibración para demostración:")
-        run_mock_calibration()
-        return
+        return 1
 
     # Constants
     FORMAT = pyaudio.paInt16
@@ -68,9 +67,8 @@ def run_calibration():
     except Exception as e:
         print(f"\n[ERROR] No se pudo abrir el canal del micrófono: {e}")
         print("Asegurate de tener un micrófono conectado y con los drivers instalados.")
-        print("\nEjecutando simulación de calibración para demostración:")
-        run_mock_calibration()
-        return
+        p.terminate()
+        return 1
 
     print("\nMicrófono calibrado y escuchando... Presioná CTRL+C para detener.")
     print("Hablá al micrófono o hacé ruido para ver los cambios de energía (RMS).\n")
@@ -98,36 +96,8 @@ def run_calibration():
         stream.stop_stream()
         stream.close()
         p.terminate()
-
-
-def run_mock_calibration():
-    print("\n[MOCK] Iniciando simulación de volumen ambiental...")
-    print("Presioná CTRL+C para detener.\n")
-    print(f"{'Volumen (RMS)':<15} | {'Nivel Gráfico':<30}")
-    print("-" * 50)
-
-    mock_values = [0.002, 0.005, 0.012, 0.003, 0.045, 0.080, 0.002, 0.010, 0.150, 0.004]
-    idx = 0
-    try:
-        while True:
-            rms = mock_values[idx]
-            idx = (idx + 1) % len(mock_values)
-
-            # Add minor random noise
-            import random
-
-            rms += random.uniform(-0.001, 0.002)
-            rms = max(0.0001, rms)
-
-            bar_len = int(rms * 100)
-            bar = "#" * min(bar_len, 30)
-
-            sys.stdout.write(f"\r{rms:14.6f} | {bar:<30}")
-            sys.stdout.flush()
-            time.sleep(0.3)
-    except KeyboardInterrupt:
-        print("\n\nSimulación de calibración detenida.")
+    return 0
 
 
 if __name__ == "__main__":
-    run_calibration()
+    sys.exit(run_calibration())

@@ -54,19 +54,39 @@ class OidoParietal:
 
         self.load_config()
 
-        # Check if we should enforce mock mode due to missing packages or flag
-        if self.force_mock or not (sr and pyaudio and faster_whisper):
-            self.force_mock = True
-            logger.info("Oído Parietal initialized in MOCK mode.")
-        else:
-            try:
-                # Load Whisper Model
-                logger.info(f"Loading local Whisper model ({self.whisper_model})...")
-                self.model = faster_whisper.WhisperModel(self.whisper_model, device="cpu", compute_type="int8")
-                logger.info("Whisper model loaded successfully.")
-            except Exception as e:
-                logger.warning(f"Could not load Whisper model: {e}. Falling back to MOCK mode.")
-                self.force_mock = True
+        # Why real listening cannot run (missing packages or model); None when it can. Never a silent mock.
+        self.unavailable_reason: str | None = None
+        if self.force_mock:
+            logger.info("Oído Parietal initialized in MOCK mode (config/arranque.yaml).")
+            return
+        missing = [
+            name
+            for name, module in (("SpeechRecognition", sr), ("PyAudio", pyaudio), ("faster-whisper", faster_whisper))
+            if module is None
+        ]
+        if missing:
+            self.unavailable_reason = (
+                f"faltan paquetes: {', '.join(missing)}. Instálalos con `pip install {' '.join(missing)}`."
+            )
+            logger.error(f"Oído Parietal no puede escuchar: {self.unavailable_reason}")
+            return
+        try:
+            logger.info(f"Loading local Whisper model ({self.whisper_model})...")
+            self.model = faster_whisper.WhisperModel(self.whisper_model, device="cpu", compute_type="int8")
+            logger.info("Whisper model loaded successfully.")
+        except Exception as e:
+            self.unavailable_reason = f"no se pudo cargar el modelo Whisper '{self.whisper_model}': {e}"
+            logger.error(f"Oído Parietal no puede escuchar: {self.unavailable_reason}")
+
+    async def announce_unavailable(self, writer):
+        """Tell the HUD why listening is off instead of idling as if everything worked."""
+        event = {
+            "action": "publish",
+            "topic": "canal.sistema.anuncios",
+            "data": {"mensaje": f"[OÍDO] No puedo escuchar: {self.unavailable_reason}", "timestamp": time.time()},
+        }
+        writer.write((json.dumps(event) + "\n").encode("utf-8"))
+        await writer.drain()
 
     def load_config(self):
         try:
@@ -227,7 +247,12 @@ class OidoParietal:
                 # Start background reader daemon to intercept system commands
                 asyncio.create_task(self.reader_daemon(reader))
 
-                if self.force_mock:
+                if self.unavailable_reason and not self.force_mock:
+                    await self.announce_unavailable(writer)
+                    # Stay connected for reload/shutdown commands, but never pretend to listen.
+                    while True:
+                        await asyncio.sleep(60)
+                elif self.force_mock:
                     await self.run_mock_loop(writer)
                 else:
                     # Real microphone capture loop using SpeechRecognition

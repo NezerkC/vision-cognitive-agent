@@ -825,12 +825,8 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                         audio_data = recognizer.record(src)
                         text_content = recognizer.recognize_google(audio_data, language="es-ES")
                 except Exception as audio_err:
-                    logger.warning(
-                        f"Local speech recognition failed: {audio_err}. Generating fallback mock transcript."
-                    )
-                    text_content = f"[Transcripción de audio fallida] Archivo: {filename}."
-                    if description:
-                        text_content += f" Descripción del audio: {description}"
+                    # Never store a placeholder as if it were the transcript.
+                    raise ValueError(f"Could not transcribe '{filename}': {audio_err}") from audio_err
             logger.info("Audio transcription completed.")
 
         # Documents (PDF, CSV, plain text)
