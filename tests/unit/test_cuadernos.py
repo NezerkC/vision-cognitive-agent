@@ -303,3 +303,19 @@ def test_chat_endpoint_returns_404_for_unknown_notebook(cuadernos_mgr, monkeypat
     resp = client.post("/api/cuadernos/..%5C..%5Cescape/chat", json={"query": "hola", "search_web": True})
 
     assert resp.status_code == 404
+
+
+def test_upload_endpoint_rejects_oversized_source(cuadernos_mgr, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    import sentidos.sistema_periferico as gateway
+
+    monkeypatch.setattr(gateway, "_cuadernos_mgr", cuadernos_mgr)
+    monkeypatch.setenv("VISION_MAX_UPLOAD_BYTES", "10")
+    nb = cuadernos_mgr.create_cuaderno("Grande", "Limite de subida")
+
+    resp = TestClient(gateway.app).post(f"/api/cuadernos/{nb['id']}/fuentes", files={"file": ("big.txt", b"x" * 11)})
+
+    assert resp.status_code == 413
+    assert cuadernos_mgr.list_cuadernos()[0]["sources"] == []
+    assert not (tmp_path / "sources" / nb["id"]).exists()

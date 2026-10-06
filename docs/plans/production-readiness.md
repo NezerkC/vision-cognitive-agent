@@ -42,7 +42,7 @@ This file is the single source of truth for the work loop. Each loop iteration c
 ## Phase 0: Security
 
 - [x] 0.1 Notebook path traversal: validate that the notebook exists and that `notebook_id` is a safe id before any filesystem write in `chat_cuaderno_stream` (`cognitivo/cuadernos_manager.py` ~426-442).
-- [ ] 0.2 Upload size limit on the notebook upload endpoint (`sentidos/sistema_periferico.py` ~1312-1319). Configurable, default 50 MB, respond 413.
+- [x] 0.2 Upload size limit on the notebook upload endpoint (`sentidos/sistema_periferico.py` ~1312-1319). Configurable, default 50 MB, respond 413.
 - [ ] 0.3 File tree and `/api/archivos` endpoints: restrict them to the opened workspace and return an error for invalid paths instead of falling back to `PROJECT_ROOT` (`sentidos/sistema_periferico.py` ~1051-1086, ~1368-1396).
 - [ ] 0.4 Tauri commands: scope `read_file_content` and `write_file_content` to the active workspace (canonicalize, reject paths outside it, cap file size). Remove the arbitrary PowerShell command or gate it behind an allowlist plus explicit approval (`vision_studio/src-tauri/src/lib.rs` 19-62). Add an app-command permission manifest (`build.rs`) and a strict CSP (`tauri.conf.json`).
 - [ ] 0.5 The AI chat `read_file` and `write_file` tools require user approval (`vision_studio/src/components/Sidebar/SidebarChat.tsx` ~291-316).
@@ -111,3 +111,4 @@ This file is the single source of truth for the work loop. Each loop iteration c
 (one line per completed task: `<task id> <summary>`; the task's commit is the one that adds the line)
 
 - 0.1 Notebook ids are validated against metadata and confined to `SOURCES_DIR` before any filesystem write; unknown notebooks return 404 from the chat, upload and delete endpoints.
+- 0.2 Gateway uploads (notebook sources, `/api/memoria/aprender`, `/upload_sensorial`) are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES` (default 50 MB).

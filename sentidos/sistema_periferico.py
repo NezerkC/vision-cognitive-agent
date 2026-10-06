@@ -20,6 +20,7 @@ from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoa
 
 from cognitivo.cuadernos_manager import CuadernosManager, NotebookNotFoundError
 from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
+from sentidos.limites_subida import read_upload_limited
 from sentidos.seguridad_local import accept_local_websocket, install_local_origin_guards
 
 # Configure logging
@@ -758,9 +759,9 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
     logger.info(f"Learning API: Ingesting file '{filename}' of type '{content_type}'")
 
     # 1. Save upload to temp file
+    content = await read_upload_limited(file)
     suffix = os.path.splitext(filename)[1]
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
         tmp.write(content)
         temp_file_path = tmp.name
 
@@ -1115,9 +1116,10 @@ async def upload_sensorial(file: UploadFile = File(...)):
     dest_path = os.path.join(TEMP_UPLOAD_DIR, safe_filename)
 
     logger.info(f"Uploading file: {safe_filename} to {dest_path}")
+    content = await read_upload_limited(file)
     try:
         with open(dest_path, "wb") as f:
-            f.write(await file.read())
+            f.write(content)
 
         # Publish event
         file_payload = {"ruta_local": os.path.abspath(dest_path), "nombre": safe_filename, "timestamp": time.time()}
@@ -1314,8 +1316,8 @@ async def api_delete_cuaderno(notebook_id: str):
 
 @app.post("/api/cuadernos/{notebook_id}/fuentes")
 async def api_add_fuente_cuaderno(notebook_id: str, file: UploadFile = File(...), description: str = Form(None)):
+    content = await read_upload_limited(file)
     try:
-        content = await file.read()
         fuente = await (await get_cuadernos_mgr()).add_fuente(notebook_id, file.filename, content, description)
         return {"status": "success", "fuente": fuente}
     except NotebookNotFoundError as e:

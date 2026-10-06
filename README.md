@@ -72,6 +72,7 @@ implementations in `core/adapters/`.
 | `OPENROUTER_API_KEY` | LLM router fallback when Ollama fails, notebook syntheses and chat |
 | `TAVILY_API_KEY` | Web search and the curiosity protocol (`protocolo_intriga`) |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `LMSTUDIO_API_KEY` | LiteLLM, when the active strategy uses those providers |
+| `VISION_MAX_UPLOAD_BYTES` | Gateway upload limit in bytes (default 52428800, 50 MB); larger uploads get HTTP 413 |
 
 - `.env` is loaded by the watchdog for every service; variables already set in your shell take precedence.
 - Keys saved from the HUD settings go to `.env` and apply to the other services on their next restart.
@@ -116,6 +117,8 @@ Folders are named after the brain region each part plays:
   (`sentidos/seguridad_local.py`). Credentials are returned masked and only known provider keys can be written.
 - The event bus TCP endpoint (bridge or broker) accepts JSON-object lines only and drops any other connection, so web
   pages cannot inject events.
+- Uploads are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES`. Notebook ids are checked against
+  the notebook metadata before any file is written, so a crafted id cannot write outside the notebook's folder.
 - `ejecutor_izquierdo` runs nothing on its own: every keyboard/mouse or shell action waits for an approve/reject ticket
   in the HUD (`canal.ejecucion.aprobacion`). Pending requests expire after 5 minutes and can be decided only once.
 - `.env`, `memoria_activa/` and `archivo_profundo/` are git-ignored; never commit keys.
