@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 
 import httpx
@@ -1252,12 +1253,32 @@ async def periodic_telemetry_loop():
 # ============================================================================
 # ENDPOINTS CUADERNOS (NotebookLM Integrado)
 # ============================================================================
-cuadernos_mgr = CuadernosManager()
+_cuadernos_mgr: CuadernosManager | None = None
+_cuadernos_lock = threading.Lock()
+
+
+def _create_cuadernos_mgr() -> CuadernosManager:
+    global _cuadernos_mgr
+    with _cuadernos_lock:
+        if _cuadernos_mgr is None:
+            _cuadernos_mgr = CuadernosManager()
+        return _cuadernos_mgr
+
+
+async def get_cuadernos_mgr() -> CuadernosManager:
+    """Notebook manager, created once on first use in a worker thread.
+
+    Creating it loads the BGE-M3 embedding model (seconds to minutes); doing that at import time used to keep
+    the whole gateway offline until it finished. run_server() warms it up in the background.
+    """
+    if _cuadernos_mgr is not None:
+        return _cuadernos_mgr
+    return await asyncio.to_thread(_create_cuadernos_mgr)
 
 
 @app.get("/api/cuadernos")
 async def api_list_cuadernos():
-    return {"status": "success", "cuadernos": cuadernos_mgr.list_cuadernos()}
+    return {"status": "success", "cuadernos": (await get_cuadernos_mgr()).list_cuadernos()}
 
 
 @app.post("/api/cuadernos")
@@ -1265,7 +1286,7 @@ async def api_create_cuaderno(request: Request):
     body = await request.json()
     title = body.get("title", "Nuevo Cuaderno")
     description = body.get("description", "")
-    cuaderno = cuadernos_mgr.create_cuaderno(title, description)
+    cuaderno = (await get_cuadernos_mgr()).create_cuaderno(title, description)
     return {"status": "success", "cuaderno": cuaderno}
 
 
@@ -1276,13 +1297,13 @@ async def api_investigar_cuaderno(request: Request):
     if not tema.strip():
         return JSONResponse(status_code=400, content={"status": "error", "message": "El tema no puede estar vacío"})
     provider_key = body.get("api_key", None)
-    cuaderno = await cuadernos_mgr.investigar_y_crear_cuaderno(tema, provider_key)
+    cuaderno = await (await get_cuadernos_mgr()).investigar_y_crear_cuaderno(tema, provider_key)
     return {"status": "success", "cuaderno": cuaderno, "message": f"Investigación iniciada para '{tema}'"}
 
 
 @app.delete("/api/cuadernos/{notebook_id}")
 async def api_delete_cuaderno(notebook_id: str):
-    success = cuadernos_mgr.delete_cuaderno(notebook_id)
+    success = (await get_cuadernos_mgr()).delete_cuaderno(notebook_id)
     if not success:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Cuaderno no encontrado"})
     return {"status": "success", "message": f"Cuaderno {notebook_id} eliminado"}
@@ -1292,7 +1313,7 @@ async def api_delete_cuaderno(notebook_id: str):
 async def api_add_fuente_cuaderno(notebook_id: str, file: UploadFile = File(...), description: str = Form(None)):
     try:
         content = await file.read()
-        fuente = await cuadernos_mgr.add_fuente(notebook_id, file.filename, content, description)
+        fuente = await (await get_cuadernos_mgr()).add_fuente(notebook_id, file.filename, content, description)
         return {"status": "success", "fuente": fuente}
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
@@ -1304,7 +1325,7 @@ async def api_generar_sintesis_cuaderno(notebook_id: str, request: Request):
     tipo = body.get("tipo", "resumen")
     provider_key = body.get("api_key", None)
     try:
-        nota = await cuadernos_mgr.generar_sintesis(notebook_id, tipo, provider_key)
+        nota = await (await get_cuadernos_mgr()).generar_sintesis(notebook_id, tipo, provider_key)
         return {"status": "success", "nota": nota}
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
@@ -1325,7 +1346,7 @@ async def api_chat_cuaderno(notebook_id: str, request: Request):
     response_style = body.get("response_style", "conciso")
 
     async def stream_generator():
-        async for chunk in cuadernos_mgr.chat_cuaderno_stream(
+        async for chunk in (await get_cuadernos_mgr()).chat_cuaderno_stream(
             notebook_id=notebook_id,
             query=query,
             history=history,
@@ -1413,6 +1434,9 @@ async def run_server():
 
     # 2. Start real-time WebSocket telemetry task
     asyncio.create_task(periodic_telemetry_loop())
+
+    # Warm up the notebook manager (BGE-M3 load) in the background so the API is up immediately.
+    asyncio.create_task(get_cuadernos_mgr())
 
     # 3. Run Uvicorn Server directly in the running event loop
     config = uvicorn.Config(
