@@ -30,7 +30,8 @@ optional desktop IDE on top of the same gateway.
 4. Open <http://127.0.0.1:8000>. Service health is written every 3 s to `config/.health_status.json`; all 14 services
    should report `running`. Stop with `Ctrl+C`.
 
-> The first start downloads the BGE-M3 embedding model (~2 GB) from Hugging Face; the gateway answers once it loads.
+> The first start downloads the BGE-M3 embedding model (~2 GB) from Hugging Face in the background; the gateway
+> answers right away and notebooks become available once the model is loaded.
 
 ## Run modes
 
@@ -41,8 +42,8 @@ optional desktop IDE on top of the same gateway.
 | Desktop | `python start_all.py` | Backend plus Vision Studio dev (needs Node, Rust/cargo, MSVC build tools, WebView2; run `npm install` in `vision_studio/` once). |
 
 > **Real mode has side effects.** With the current `config/arranque.yaml`, `ejecutor_izquierdo` controls mouse and
-> keyboard and can run shell commands, `vision_parietal` captures the screen every 5 s, and `habla_parietal` speaks
-> aloud. Switch them to `true` (mock) unless you want that.
+> keyboard and can run shell commands (each action only after you approve its ticket in the HUD), `vision_parietal`
+> captures the screen every 5 s, and `habla_parietal` speaks aloud. Switch them to `true` (mock) unless you want that.
 
 ## Services and ports
 
@@ -107,13 +108,13 @@ Folders are named after the brain region each part plays:
 - The gateway serves only local origins: CORS allowlist, cross-site write rejection and a WebSocket origin check
   (`sentidos/seguridad_local.py`). Credentials are returned masked and only known provider keys can be written.
 - The broker accepts JSON-object lines only and drops any other connection, so web pages cannot inject events.
+- `ejecutor_izquierdo` runs nothing on its own: every keyboard/mouse or shell action waits for an approve/reject ticket
+  in the HUD (`canal.ejecucion.aprobacion`). Pending requests expire after 5 minutes and can be decided only once.
 - `.env`, `memoria_activa/` and `archivo_profundo/` are git-ignored; never commit keys.
 
 ## Known limitations
 
-- `ejecutor_izquierdo` runs shell commands chosen by the LLM without an allowlist or human approval step; keep it in
-  mock unless you trust the prompts.
-- The gateway loads BGE-M3 at import time, which slows the first start.
+- Approved shell commands run with your user's permissions; there is no allowlist beyond your own review.
 - The llama.cpp integration uses machine-specific paths (`sentidos/sistema_periferico.py`, `cognitivo/gestor_llamacpp.py`).
 - The hexagonal refactor (`refactor/clean-hexagonal-architecture`: in-process event bus, ports and adapters, single
   runtime) is not merged yet.
