@@ -1,0 +1,8 @@
+modos_mock:
+  ejecutor_izquierdo: false
+  habla_parietal: false
+  imaginacion_occipital: true
+  lancedb_manager: true
+  oido_parietal: false
+  protocolo_intriga: true
+  vision_parietal: false

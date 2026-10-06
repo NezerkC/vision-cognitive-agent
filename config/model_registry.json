@@ -1,0 +1,62 @@
+[
+  {
+    "id": "model-1",
+    "proveedor_modelo": "Google",
+    "proveedor_api": "OpenRouter",
+    "modelo": "google/gemini-2.5-flash:free",
+    "especializacion": "General / Vision / Fast",
+    "imagen": true,
+    "texto": true,
+    "audio": false,
+    "tools": true,
+    "think": false
+  },
+  {
+    "id": "model-2",
+    "proveedor_modelo": "Meta",
+    "proveedor_api": "LM Studio (Local)",
+    "modelo": "openai/local-model",
+    "especializacion": "Coding / Local Offline",
+    "imagen": false,
+    "texto": true,
+    "audio": false,
+    "tools": true,
+    "think": false
+  },
+  {
+    "id": "model-3",
+    "proveedor_modelo": "Google",
+    "proveedor_api": "Google AI Studio",
+    "modelo": "gemini/gemini-1.5-pro",
+    "especializacion": "Complex Reasoning",
+    "imagen": true,
+    "texto": true,
+    "audio": true,
+    "tools": true,
+    "think": true
+  },
+  {
+    "proveedor_modelo": "Google",
+    "proveedor_api": "Google AI Studio",
+    "modelo": "gemini/gemini-2.0-flash",
+    "especializacion": "Coding",
+    "texto": true,
+    "imagen": false,
+    "audio": false,
+    "tools": false,
+    "think": false,
+    "id": "model-1783909640-3"
+  },
+  {
+    "proveedor_modelo": "openrouter/openrouter",
+    "proveedor_api": "OpenRouter",
+    "modelo": "free models",
+    "especializacion": "General",
+    "texto": true,
+    "imagen": false,
+    "audio": false,
+    "tools": false,
+    "think": false,
+    "id": "model-1783911478-4"
+  }
+]

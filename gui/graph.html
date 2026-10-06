@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VISIÓN OS - Vector Database 3D Graph Explorer</title>
+    <!-- Load Three.js and 3d-force-graph CDN -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/3d-force-graph@1.73.0/dist/3d-force-graph.min.js"></script>
+    <!-- Google Fonts for digital aesthetic -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #080b0e;
+            color: #e0e5eb;
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* 3D Graph container */
+        #3d-graph {
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        /* HUD overlays */
+        .hud-overlay {
+            position: absolute;
+            z-index: 10;
+            pointer-events: auto;
+        }
+
+        /* Header HUD */
+        .hud-header {
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #ff00ff;
+            padding-bottom: 12px;
+            pointer-events: none;
+            box-shadow: 0 5px 15px rgba(255, 0, 255, 0.05);
+        }
+
+        .logo-box {
+            pointer-events: auto;
+        }
+
+        .logo-text {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 900;
+            font-size: 22px;
+            color: #ff00ff;
+            text-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+            letter-spacing: 2px;
+        }
+
+        .logo-version {
+            font-size: 11px;
+            color: #00f3ff;
+            margin-left: 10px;
+            text-shadow: 0 0 5px rgba(0, 243, 255, 0.5);
+        }
+
+        .btn-back {
+            pointer-events: auto;
+            background: rgba(255, 0, 255, 0.1);
+            border: 1px solid rgba(255, 0, 255, 0.4);
+            color: #ff00ff;
+            font-family: 'Share Tech Mono', monospace;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            text-shadow: 0 0 5px rgba(255, 0, 255, 0.5);
+            text-decoration: none;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-back:hover {
+            background: rgba(255, 0, 255, 0.25);
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.4);
+            transform: scale(1.05);
+        }
+
+        /* Sidebar Inspector */
+        .left-panel {
+            top: 90px;
+            left: 20px;
+            bottom: 20px;
+            width: 340px;
+            background: rgba(10, 16, 26, 0.85);
+            border: 1px solid rgba(0, 243, 255, 0.25);
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+            box-shadow: inset 0 0 15px rgba(0, 243, 255, 0.05);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: rgba(0, 243, 255, 0.1);
+            color: #00f3ff;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 12px 15px;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.25);
+            letter-spacing: 1px;
+            text-shadow: 0 0 5px rgba(0, 243, 255, 0.3);
+        }
+
+        .inspector-body {
+            padding: 15px;
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.6;
+        }
+
+        .no-selection {
+            color: #5d6f83;
+            text-align: center;
+            margin-top: 40px;
+            font-style: italic;
+        }
+
+        .meta-group {
+            margin-bottom: 15px;
+            border-bottom: 1px dashed rgba(0, 243, 255, 0.15);
+            padding-bottom: 10px;
+        }
+
+        .meta-label {
+            color: #00f3ff;
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+
+        .meta-value {
+            color: #ffffff;
+            word-break: break-all;
+        }
+
+        .neighbor-list {
+            list-style: none;
+            margin-top: 5px;
+        }
+
+        .neighbor-item {
+            background: rgba(0, 243, 255, 0.03);
+            border: 1px solid rgba(0, 243, 255, 0.1);
+            border-radius: 4px;
+            padding: 6px 10px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .neighbor-name {
+            color: #39ff14;
+            max-width: 180px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .neighbor-dist {
+            color: #ff9900;
+        }
+
+        /* Search Overlay */
+        .search-panel {
+            top: 90px;
+            right: 20px;
+            width: 300px;
+            background: rgba(10, 16, 26, 0.85);
+            border: 1px solid rgba(255, 0, 255, 0.25);
+            border-radius: 6px;
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            box-shadow: inset 0 0 15px rgba(255, 0, 255, 0.05);
+        }
+
+        .search-input {
+            width: 100%;
+            background: #080b0e;
+            border: 1px solid rgba(255, 0, 255, 0.4);
+            border-radius: 4px;
+            color: #ffffff;
+            padding: 8px 12px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 13px;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            border-color: #ff00ff;
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.25);
+        }
+
+        /* 3D Scene Node Label Tooltip styling override */
+        .scene-tooltip {
+            background: rgba(10, 16, 26, 0.95) !important;
+            border: 1px solid #ff00ff !important;
+            color: #e0e5eb !important;
+            border-radius: 4px !important;
+            font-family: 'Share Tech Mono', monospace !important;
+            padding: 6px 10px !important;
+            box-shadow: 0 0 15px rgba(255, 0, 255, 0.2) !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- HEADER HUD -->
+    <header class="hud-overlay hud-header">
+        <div class="logo-box">
+            <span class="logo-text">EXPLORADOR VECTORIAL</span>
+            <span class="logo-version">OBSIDIAN 3D ENGINE</span>
+        </div>
+        <a href="/" class="btn-back">⬅️ VOLVER AL HUD</a>
+    </header>
+
+    <!-- SIDEBAR INSPECTOR -->
+    <section class="hud-overlay left-panel">
+        <div class="panel-header">INSPECTOR DE ARCHIVOS VECTORIALES</div>
+        <div id="inspector-content" class="inspector-body">
+            <div class="no-selection">Seleccioná un nodo del grafo 3D para analizar sus metadatos.</div>
+        </div>
+    </section>
+
+    <!-- SEARCH PANEL -->
+    <section class="hud-overlay search-panel">
+        <input type="text" id="search-box" class="search-input" placeholder="🔍 Buscar nodo por nombre..." autocomplete="off">
+    </section>
+
+    <!-- 3D GRAPH CONTAINER -->
+    <div id="3d-graph"></div>
+
+    <script>
+        // --- 1. Generar Base de Datos de Ejemplo (30 Nodos) ---
+        const fileNames = [
+            "config_seguridad.yaml", "documento_secreto.pdf", "memoria_fractal.db",
+            "tallo_cerebral.py", "corazon_broker.py", "amigdala_gatekeeper.py",
+            "enrutador_frontal.py", "analisis_derecho.py", "captura_pantalla_1.png",
+            "microfono_parietal.py", "whisper_audio.wav", "ejecutor_izquierdo.py",
+            "control_teclado.py", "occipital_imaginacion.py", "servidor_periferico.py",
+            "calibrador_microfono.py", "effort_levels.json", "emotions.json",
+            "test_integracion.py", "requerimientos.txt", "readme_arquitectura.md",
+            "diagrama_comfy.png", "lancedb_vector_index.bin", "solucion_crashed_radeon.json",
+            "log_watchdog.txt", "anomalia_pantalla_error.jpg", "historial_conversacion.json",
+            "modelo_bge_m3.weights", "hipocampo_resumen.txt", "llm_router_yaml.config"
+        ];
+
+        // Format raw bytes into human readable format
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Generate 30 mock nodes
+        const nodes = fileNames.map((name, index) => {
+            // Random sizes spanning from bytes to terabytes
+            let size;
+            const r = Math.random();
+            if (r < 0.2) size = Math.floor(Math.random() * 900) + 100; // Bytes
+            else if (r < 0.4) size = Math.floor(Math.random() * 900 * 1024) + 1024; // KB
+            else if (r < 0.7) size = Math.floor(Math.random() * 500 * 1024 * 1024) + 1024 * 1024; // MB
+            else if (r < 0.9) size = Math.floor(Math.random() * 20 * 1024 * 1024 * 1024) + 1024 * 1024 * 1024; // GB
+            else size = Math.floor(Math.random() * 2 * 1024 * 1024 * 1024 * 1024) + 1024 * 1024 * 1024 * 1024; // TB
+
+            return {
+                id: `file-node-${index}`,
+                nombre: name,
+                tamaño_bytes: size,
+                // Coordinate representing 3D spatial vectors
+                x: (Math.random() - 0.5) * 4.0,
+                y: (Math.random() - 0.5) * 4.0,
+                z: (Math.random() - 0.5) * 4.0
+            };
+        });
+
+        // --- 2. Calcular Aristas (Líneas de Distancia Euclídea) ---
+        const links = [];
+        const THRESHOLD = 1.6; // Connect nodes with vector distance less than 1.6
+
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                const dx = nodes[i].x - nodes[j].x;
+                const dy = nodes[i].y - nodes[j].y;
+                const dz = nodes[i].z - nodes[j].z;
+                const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+                if (distance < THRESHOLD) {
+                    links.push({
+                        source: nodes[i].id,
+                        target: nodes[j].id,
+                        distance: distance
+                    });
+                }
+            }
+        }
+
+        const gData = { nodes, links };
+
+        // Search highlight state tracker
+        let searchString = "";
+        let highlightedNodeIds = new Set();
+
+        // --- 3. Inicializar ForceGraph3D ---
+        const Graph = ForceGraph3D()(document.getElementById('3d-graph'))
+            .graphData(gData)
+            .backgroundColor('#080b0e')
+            .showNavInfo(false)
+            // Custom Node 3D Object (MeshBasicMaterial ignores shadow calculations)
+            .nodeThreeObject(node => {
+                const logVal = Math.log10(node.tamaño_bytes + 1);
+                const radius = Math.max(3.0, logVal * 1.4);
+                
+                let color = '#ff9900';
+                if (highlightedNodeIds.has(node.id)) {
+                    color = '#ff00ff';
+                } else {
+                    const ext = node.nombre.split('.').pop().toLowerCase();
+                    if (ext === 'py') color = '#39ff14';
+                    else if (['pdf', 'txt', 'md'].includes(ext)) color = '#00f3ff';
+                    else if (['png', 'jpg', 'jpeg'].includes(ext)) color = '#ff00ff';
+                    else if (['yaml', 'json', 'yml', 'config'].includes(ext)) color = '#ffcc00';
+                }
+                
+                let opacity = 0.95;
+                if (searchString !== "" && !highlightedNodeIds.has(node.id)) {
+                    opacity = 0.15; // Dim non-matching nodes
+                }
+                
+                const geometry = new THREE.SphereGeometry(radius, 16, 16);
+                const material = new THREE.MeshBasicMaterial({ 
+                    color: color,
+                    transparent: true,
+                    opacity: opacity
+                });
+                return new THREE.Mesh(geometry, material);
+            })
+            .nodeLabel(node => `<div class="scene-tooltip"><strong>${node.nombre}</strong><br>Tamaño: ${formatBytes(node.tamaño_bytes)}</div>`)
+            // Link/Aristas Styling based on distance (affinity) - solid vibrant colors
+            .linkColor(link => {
+                const dist = link.distance;
+                if (dist < 0.8) return '#39ff14';    // Verde brillante: cercano
+                if (dist < 1.3) return '#ffcc00';    // Amarillo brillante: medio
+                return '#ff3333';                    // Rojo brillante: poco parentesco
+            })
+            .linkWidth(link => {
+                // Link is thicker and much more visible
+                return Math.max(1.2, (THRESHOLD - link.distance) * 3.0);
+            })
+            // Node visual dimming if not matching search
+            .nodeOpacity(node => {
+                if (searchString === "") return 0.95;
+                return highlightedNodeIds.has(node.id) ? 0.95 : 0.1;
+            })
+            .linkVisibility(link => {
+                if (searchString === "") return true;
+                // Only show links where at least one node matches search to keep UI clean
+                return highlightedNodeIds.has(link.source.id) || highlightedNodeIds.has(link.target.id);
+            })
+            // Hover/Click controls
+            .onNodeClick(node => {
+                // Aim camera to node
+                const distance = 8;
+                const distRatio = 1 + distance/Math.hypot(node.x, node.y, node.z);
+                Graph.cameraPosition(
+                    { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio }, // position
+                    node, // lookAt
+                    2000  // ms transition
+                );
+
+                // Update Inspector
+                updateInspector(node);
+            });
+
+        // Configure physics: attraction and repulsion parameters
+        Graph.d3Force('charge').strength(-200);
+        Graph.d3Force('link').distance(50);
+
+        // --- 4. Inspector Sidebar Updates ---
+        function updateInspector(node) {
+            const panel = document.getElementById("inspector-content");
+            if (!panel) return;
+
+            // Get neighbor list
+            const neighbors = links
+                .filter(l => l.source.id === node.id || l.target.id === node.id)
+                .map(l => {
+                    const otherNode = l.source.id === node.id ? l.target : l.source;
+                    return {
+                        id: otherNode.id,
+                        nombre: otherNode.nombre,
+                        distance: l.distance
+                    };
+                })
+                .sort((a, b) => a.distance - b.distance);
+
+            let neighborHtml = "";
+            if (neighbors.length > 0) {
+                neighborHtml = `<ul class="neighbor-list">`;
+                neighbors.forEach(n => {
+                    neighborHtml += `
+                        <li class="neighbor-item">
+                            <span class="neighbor-name" title="${n.nombre}">${n.nombre}</span>
+                            <span class="neighbor-dist">${n.distance.toFixed(3)} u</span>
+                        </li>
+                    `;
+                });
+                neighborHtml += `</ul>`;
+            } else {
+                neighborHtml = `<div style="color:#5d6f83; font-style:italic;">No posee conexiones vectoriales cercanas.</div>`;
+            }
+
+            panel.innerHTML = `
+                <div class="meta-group">
+                    <div class="meta-label">IDENTIFICADOR (ID)</div>
+                    <div class="meta-value">${node.id}</div>
+                </div>
+                <div class="meta-group">
+                    <div class="meta-label">NOMBRE DEL ARCHIVO</div>
+                    <div class="meta-value">${node.nombre}</div>
+                </div>
+                <div class="meta-group">
+                    <div class="meta-label">TAMAÑO EN DISCO</div>
+                    <div class="meta-value">${formatBytes(node.tamaño_bytes)} (${node.tamaño_bytes.toLocaleString()} bytes)</div>
+                </div>
+                <div class="meta-group">
+                    <div class="meta-label">COORDENADAS DE EMBEDDING (3D VECTOR)</div>
+                    <div class="meta-value" style="color: #ff9900;">[ ${node.x.toFixed(4)}, ${node.y.toFixed(4)}, ${node.z.toFixed(4)} ]</div>
+                </div>
+                <div class="meta-group" style="border: none;">
+                    <div class="meta-label">ARCHIVOS RELACIONADOS (DISTANCIA EUCLÍDEA)</div>
+                    ${neighborHtml}
+                </div>
+            `;
+        }
+
+        // --- 5. Buscador / Search Filters ---
+        const searchBox = document.getElementById("search-box");
+        if (searchBox) {
+            searchBox.addEventListener("input", (e) => {
+                searchString = e.target.value.toLowerCase().trim();
+                highlightedNodeIds.clear();
+
+                if (searchString !== "") {
+                    // Match nodes containing the text
+                    nodes.forEach(node => {
+                        if (node.nombre.toLowerCase().includes(searchString)) {
+                            highlightedNodeIds.add(node.id);
+                        }
+                    });
+                }
+
+                // Trigger render updates
+                Graph.nodeThreeObject(Graph.nodeThreeObject());
+                Graph.linkVisibility(Graph.linkVisibility());
+            });
+        }
+    </script>
+</body>
+</html>

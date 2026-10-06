@@ -1,0 +1,37 @@
+{
+    "gemma4:latest": {
+        "status": "success",
+        "time_seconds": 83.91015315055847,
+        "response": "OK"
+    },
+    "qwen3.6:latest": {
+        "status": "error",
+        "time_seconds": 180.37525820732117,
+        "error": "litellm.APIConnectionError: OllamaException - litellm.Timeout: Connection timed out. Timeout passed=180.0, time taken=180.015 seconds"
+    },
+    "qwen2.5-coder:14b": {
+        "status": "success",
+        "time_seconds": 72.33299803733826,
+        "response": "OK"
+    },
+    "minicpm-v:latest": {
+        "status": "success",
+        "time_seconds": 51.216835021972656,
+        "response": "OK."
+    },
+    "llama3.2:latest": {
+        "status": "success",
+        "time_seconds": 20.90450692176819,
+        "response": "OK"
+    },
+    "llama3.1:latest": {
+        "status": "success",
+        "time_seconds": 46.600685834884644,
+        "response": "OK."
+    },
+    "deepseek-r1:14b": {
+        "status": "success",
+        "time_seconds": 137.1507110595703,
+        "response": "OK"
+    }
+}

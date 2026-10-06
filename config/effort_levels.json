@@ -1,0 +1,14 @@
+{
+  "esfuerzo_bajo": {
+    "temperature": 0.5,
+    "max_tokens": 512
+  },
+  "esfuerzo_medio": {
+    "temperature": 0.7,
+    "max_tokens": 1024
+  },
+  "esfuerzo_alto": {
+    "temperature": 0.3,
+    "max_tokens": 2048
+  }
+}

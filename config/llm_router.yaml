@@ -1,0 +1,56 @@
+fallback_rules:
+  cooldown_seconds: 2
+  retry_attempts: 1
+roles:
+  modelo_chat_principal:
+    hibrido_api: openrouter/google/gemini-2.5-flash:free
+    locales: ollama/llama3.2:latest
+    suscripcion_mensual: openai/gpt-4o-mini
+  modelo_stt_oido:
+    hibrido_api: faster-whisper
+    locales: faster-whisper
+    suscripcion_mensual: openai/whisper-1
+  modelo_tts_habla:
+    hibrido_api: openai/tts-1
+    locales: null
+    suscripcion_mensual: openai/tts-1
+routing_strategy: locales
+strategies:
+  hibrido_api:
+    esfuerzo_alto:
+      api_base: https://openrouter.ai/api/v1
+      fallback: esfuerzo_bajo
+      model: openrouter/deepseek/deepseek-r1
+    esfuerzo_bajo:
+      api_base: http://localhost:11434
+      fallback: null
+      model: ollama/llama3.2:latest
+    esfuerzo_medio:
+      api_base: https://openrouter.ai/api/v1
+      fallback: esfuerzo_bajo
+      model: openrouter/google/gemini-2.5-flash:free
+  locales:
+    esfuerzo_alto:
+      api_base: http://localhost:11434
+      fallback: esfuerzo_bajo
+      model: ollama/deepseek-r1:14b
+    esfuerzo_bajo:
+      api_base: http://localhost:11434
+      fallback: null
+      model: ollama/llama3.2:latest
+    esfuerzo_medio:
+      api_base: http://localhost:11434
+      fallback: esfuerzo_bajo
+      model: ollama/qwen2.5-coder:14b
+  suscripcion_mensual:
+    esfuerzo_alto:
+      fallback: esfuerzo_bajo
+      model: anthropic/claude-3-5-sonnet-20241022
+    esfuerzo_bajo:
+      api_base: https://openrouter.ai/api/v1
+      api_key: ${OPENROUTER_API_KEY}
+      fallback: null
+      model: openrouter/google/gemini-2.5-flash
+    esfuerzo_medio:
+      fallback: esfuerzo_bajo
+      model: openai/gpt-4o-mini
