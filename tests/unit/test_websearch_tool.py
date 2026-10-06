@@ -1,22 +1,41 @@
-"""Tests for the Web Search System (websearch_tool, nodo_web)."""
+"""Tests for the web search tool and its broker daemon. Backends are patched: these tests never touch the network.
+
+The live DuckDuckGo check is in tests/integration/test_websearch_live.py.
+"""
 
 import json
-import os
-import sys
 import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-# Ensure cognitivo/ is in the path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cognitivo"))
-
-from skills.websearch_tool import (
+from cognitivo.skills import websearch_tool
+from cognitivo.skills.websearch_tool import (
     SearchCache,
     SearchResult,
     WebSearchEngine,
     buscar_en_web_func,
 )
+from cognitivo.web_search import WebSearchDaemon
+
+
+class FakeWriter:
+    def __init__(self):
+        self.events = []
+
+    def write(self, data: bytes):
+        self.events.append(json.loads(data.decode("utf-8")))
+
+    async def drain(self):
+        pass
+
+
+def _results(source: str, count: int) -> list[SearchResult]:
+    """`count` results with URLs unique to `source`."""
+    return [
+        SearchResult(title=f"{source} {i}", url=f"https://example.com/{source}/{i}", snippet="") for i in range(count)
+    ]
+
 
 # ──────────────────────────────────────────────
 # SearchCache Tests
@@ -89,30 +108,59 @@ class TestSearchCache:
 
 class TestWebSearchEngine:
     @pytest.mark.asyncio
-    async def test_empty_query(self):
-        engine = WebSearchEngine()
-        result = await engine.buscar("", 5)
-        assert result.status == "error"
+    @pytest.mark.parametrize("query", ["", "   "])
+    async def test_empty_query(self, query):
+        result = await WebSearchEngine().buscar(query, 5)
 
-        result = await engine.buscar("   ", 5)
         assert result.status == "error"
+        assert result.source == "none"
+        assert result.results == []
 
     @pytest.mark.asyncio
     async def test_max_results_capped(self):
+        """More than 10 results takes the deep-search path, which returns at most 50."""
         engine = WebSearchEngine()
-        # Should not crash with high max_results
-        result = await engine.buscar("python", 100)
-        assert result.status in ("success", "error", "no_results")
+
+        async def ddg(query, max_results):
+            return _results(query, max_results)
+
+        with (
+            patch.object(engine, "_search_ddg", AsyncMock(side_effect=ddg)) as mock_ddg,
+            patch.object(engine, "_search_tavily", AsyncMock(return_value=_results("tavily", 60))) as mock_tavily,
+        ):
+            result = await engine.buscar("python", 100)
+
+        assert result.status == "success"
+        assert len(result.results) == 50
+        assert mock_ddg.call_count == 4  # one call per deep-search sub-query
+        mock_tavily.assert_called_once_with("python", max_results=50)
+
+    @pytest.mark.asyncio
+    async def test_deep_search_without_results_is_an_error(self):
+        engine = WebSearchEngine()
+        with (
+            patch.object(engine, "_search_ddg", AsyncMock(return_value=[])),
+            patch.object(engine, "_search_tavily", AsyncMock(side_effect=ValueError("TAVILY_API_KEY not set"))),
+        ):
+            result = await engine.buscar("python", 25)
+
+        assert result.status == "error"
+        assert result.source == "none"
+        assert result.results == []
 
     @pytest.mark.asyncio
     async def test_ddg_fallback_to_error(self):
-        """If DDG fails and no Tavily key, should return error gracefully."""
+        """If every backend fails, the search returns an error with no results."""
         engine = WebSearchEngine()
-        with patch.object(engine, "_search_ddg", AsyncMock(side_effect=Exception("DDG down"))):
+        with (
+            patch.object(engine, "_search_ddg", AsyncMock(side_effect=Exception("DDG down"))),
+            patch.object(engine, "_search_tavily", AsyncMock(side_effect=ValueError("TAVILY_API_KEY not set"))),
+        ):
             result = await engine.buscar("python test", 3)
-            assert result.status == "error"
-            assert result.source == "mock"
-            assert len(result.results) == 0
+
+        assert result.status == "error"
+        assert result.source == "none"
+        assert len(result.results) == 0
 
     @pytest.mark.asyncio
     async def test_tavily_called_when_ddg_fails(self):
@@ -169,31 +217,58 @@ class TestWebSearchEngine:
 
 class TestBuscarEnWeb:
     @pytest.mark.asyncio
-    async def test_returns_valid_json(self):
-        """The function should return a valid JSON string."""
+    async def test_returns_valid_json(self, monkeypatch):
+        """The function returns the module engine's response as a JSON string."""
+        engine = WebSearchEngine()
+        ddg_results = [SearchResult(title="DDG", url="https://ddg.com", snippet="From DDG")]
+        monkeypatch.setattr(engine, "_search_ddg", AsyncMock(return_value=ddg_results))
+        monkeypatch.setattr(websearch_tool, "_engine", engine)
+
         result = await buscar_en_web_func("test query", 1)
+
         assert isinstance(result, str)
         data = json.loads(result)
-        assert "status" in data
-        assert "results" in data
-        assert "source" in data
+        assert data["status"] == "success"
+        assert data["source"] == "duckduckgo"
+        assert data["results"] == [{"title": "DDG", "url": "https://ddg.com", "snippet": "From DDG"}]
         assert "timestamp" in data
 
 
 # ──────────────────────────────────────────────
-# DDG Backend Real Test (integration)
+# WebSearchDaemon Tests
 # ──────────────────────────────────────────────
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(
-    os.environ.get("CI") == "true",
-    reason="Skip real web searches in CI",
-)
-async def test_real_ddg_search():
-    """Integration test: real DuckDuckGo search (CI only)."""
-    engine = WebSearchEngine()
-    result = await engine._search_ddg("python programming language", 2)
-    assert len(result) > 0
-    assert result[0].title is not None
-    assert result[0].url is not None
+class TestWebSearchDaemon:
+    @pytest.mark.asyncio
+    async def test_empty_query_is_an_error_without_a_source(self):
+        writer = FakeWriter()
+
+        await WebSearchDaemon().handle_search_request({"request_id": "web-1", "query": "  "}, writer)
+
+        [event] = writer.events
+        assert event["topic"] == "canal.web.resultado"
+        assert event["data"]["status"] == "error"
+        assert event["data"]["source"] == "none"
+
+    @pytest.mark.asyncio
+    async def test_engine_failure_is_an_error_without_a_source(self, monkeypatch):
+        daemon = WebSearchDaemon()
+        monkeypatch.setattr(daemon.engine, "buscar", AsyncMock(side_effect=RuntimeError("network down")))
+        writer = FakeWriter()
+
+        await daemon.handle_search_request({"request_id": "web-2", "query": "python"}, writer)
+
+        result = writer.events[0]["data"]
+        assert result["status"] == "error"
+        assert result["source"] == "none"
+        assert result["error"] == "network down"
+        assert result["results"] == []
+
+    @pytest.mark.asyncio
+    async def test_only_explicit_mock_mode_labels_results_as_mock(self):
+        writer = FakeWriter()
+
+        await WebSearchDaemon(is_mock=True).handle_search_request({"request_id": "web-3", "query": "python"}, writer)
+
+        assert writer.events[0]["data"]["source"] == "mock"

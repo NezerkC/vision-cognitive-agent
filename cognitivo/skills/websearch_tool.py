@@ -1,10 +1,10 @@
 """
 Web Search Tool for Visión OS.
 
-Provides a unified web search interface with three backends:
+Provides a unified web search interface with two backends:
 1. DuckDuckGo (primary — free, no API key)
 2. Tavily (fallback — requires TAVILY_API_KEY)
-3. Mock (last resort — development/testing)
+When both fail, the response is an error with no results and source "none".
 
 Integrates with LangGraph as a @tool and with the Event Broker as a daemon.
 """
@@ -44,7 +44,7 @@ class SearchResponse:
 
     status: Literal["success", "error", "no_results"]
     results: list[SearchResult]
-    source: Literal["duckduckgo", "tavily", "mock", "cache"]
+    source: Literal["duckduckgo", "tavily", "cache", "none"]  # "none": no backend answered
     error: str | None = None
     timestamp: float = field(default_factory=time.time)
 
@@ -128,7 +128,7 @@ class SearchCache:
 class WebSearchEngine:
     """Unified web search engine with automatic fallback across backends.
 
-    Backend chain: Cache → DuckDuckGo → Tavily → Mock/Error
+    Backend chain: Cache → DuckDuckGo → Tavily → Error
     """
 
     def __init__(self, cache_ttl: int = 300):
@@ -150,7 +150,7 @@ class WebSearchEngine:
             return SearchResponse(
                 status="error",
                 results=[],
-                source="mock",
+                source="none",
                 error="Empty query",
             )
 
@@ -184,7 +184,7 @@ class WebSearchEngine:
         return SearchResponse(
             status="error",
             results=[],
-            source="mock",
+            source="none",
             error="All search backends failed. Check network or API keys.",
         )
 
@@ -234,7 +234,7 @@ class WebSearchEngine:
         return SearchResponse(
             status="error",
             results=[],
-            source="mock",
+            source="none",
             error="No se pudieron obtener suficientes resultados en la búsqueda profunda.",
         )
 

@@ -52,7 +52,7 @@ class WebSearchDaemon:
             result = {
                 "request_id": request_id,
                 "status": "error",
-                "source": "mock",
+                "source": "none",
                 "results": [],
                 "error": "Empty query",
                 "timestamp": time.time(),
@@ -88,7 +88,7 @@ class WebSearchDaemon:
                 result = {
                     "request_id": request_id,
                     "status": "error",
-                    "source": "mock",
+                    "source": "none",
                     "results": [],
                     "error": str(e),
                     "timestamp": time.time(),

@@ -72,6 +72,34 @@ async def test_call_llm_returns_the_model_answer(monkeypatch, no_model_pull):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("estado", "temperature"), [("neutral", 0.3), ("lógico", 0.0), ("creativo", 0.8), ("intriga", 0.8)]
+)
+async def test_call_llm_emotion_overrides_the_effort_temperature(
+    monkeypatch, tmp_path, no_model_pull, estado, temperature
+):
+    effort_levels = tmp_path / "effort_levels.json"
+    effort_levels.write_text(json.dumps({"esfuerzo_bajo": {"temperature": 0.3, "max_tokens": 256}}), encoding="utf-8")
+    emotions = tmp_path / "emotions.json"
+    emotions.write_text(json.dumps({"estado": estado, "intensidad": 0.9}), encoding="utf-8")
+    monkeypatch.setattr(llm_router, "EFFORT_LEVELS_PATH", str(effort_levels))
+    monkeypatch.setattr(llm_router, "EMOTIONS_PATH", str(emotions))
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return _FakeCompletion("4")
+
+    monkeypatch.setattr(llm_router.litellm, "acompletion", completion)
+
+    await LLMRouter().call_llm("esfuerzo_bajo", "¿Cuánto es 2+2?")
+
+    [call] = calls
+    assert call["temperature"] == temperature
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_enrutar_peticion_raises_when_every_model_fails(monkeypatch, no_model_pull):
     async def unavailable(**kwargs):
         raise ConnectionError("no model reachable")
