@@ -76,8 +76,8 @@ every service from the project root with the project on `PYTHONPATH`.
 |------|---------|
 | Dev tools (once) | `python -m pip install pytest pytest-asyncio pytest-cov ruff==0.15.22 pre-commit` |
 | Tests (offline, ~15 s) | `python -m pytest tests` |
-| Lint | `ruff check core/ cognitivo/ sentidos/ memoria/ tests/` |
-| Format check | `ruff format --check core/ cognitivo/ sentidos/ memoria/ tests/` |
+| Lint (whole repo, like CI) | `ruff check .` |
+| Format check | `ruff format --check .` |
 | Git hooks | `pre-commit install` |
 | Studio type-check and build | `cd vision_studio; npm run build` |
 

@@ -11,7 +11,7 @@
   - Usar estrictamente Conventional Commits (`feat:`, `fix:`, `security:`, `test:`, `ci:`, `docs:`, `chore:`, `style:`).
   - NUNCA agregar `Co-Authored-By` ni firma de IA en los mensajes de commit.
 
-- **Calidad de Código y Testing Obligatorio:** Antes de declarar finalizado un cambio, ejecutar la suite de Pytest (`pytest tests/`) y el linter Ruff (`ruff check core/ cognitivo/ sentidos/ memoria/ tests/`).
+- **Calidad de Código y Testing Obligatorio:** Antes de declarar finalizado un cambio, ejecutar la suite de Pytest (`pytest tests/`) y Ruff sobre todo el repo como la CI (`ruff check .` y `ruff format --check .`).
 
 - **Diagnóstico y Causa Raíz (Sin Parches Superficiales):** Inspeccionar siempre logs y stack traces reales antes de emitir diagnósticos. Prohibido enmascarar errores silenciando excepciones o borrando/comentando assertions fallidas para pasar la CI.
 
