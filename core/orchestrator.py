@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import sys
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import yaml
@@ -38,6 +39,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("BrainstemOrchestrator")
+
+ServiceFactory = Callable[[], Awaitable[None]]
+RESTART_DELAY_SECONDS = 3
 
 
 class BrainstemOrchestrator:
@@ -111,41 +115,9 @@ class BrainstemOrchestrator:
         lancedb_mgr = LanceDBManager(host="127.0.0.1", port=self.tcp_port)
         lancedb_mgr.init_db(mock_embedder=lancedb_mock)
 
-        # 4. Wire Remaining Background Services via Managed Async Tasks
-        services_to_run = [
-            ("Router Frontal", LLMRouter(port=self.tcp_port).run()),
-            ("LanceDB Daemon", lancedb_mgr.run()),
-            ("Hipocampo", Hipocampo(port=self.tcp_port).run()),
-            (
-                "Visión Parietal",
-                VisionParietal(port=self.tcp_port, force_mock=self.is_service_mock("vision_parietal")).run(),
-            ),
-            ("Oído Parietal", OidoParietal(port=self.tcp_port, force_mock=self.is_service_mock("oido_parietal")).run()),
-            (
-                "Habla Parietal",
-                HablaParietal(port=self.tcp_port, force_mock=self.is_service_mock("habla_parietal")).run(),
-            ),
-            ("Contexto Derecho", ContextoDerecho(port=self.tcp_port).run()),
-            (
-                "Protocolo Intriga",
-                ProtocoloIntriga(port=self.tcp_port, is_mock=self.is_service_mock("protocolo_intriga")).run(),
-            ),
-            ("Web Search", WebSearchDaemon(port=self.tcp_port, is_mock=self.is_service_mock("web_search")).run()),
-            (
-                "Ejecutor Izquierdo",
-                EjecutorIzquierdo(port=self.tcp_port, is_mock=self.is_service_mock("ejecutor_izquierdo")).run(),
-            ),
-            (
-                "Imaginación Occipital",
-                ImaginacionOccipital(
-                    port=self.tcp_port, force_mock=self.is_service_mock("imaginacion_occipital")
-                ).run(),
-            ),
-            ("Pineal Daemon", PinealDaemon(port=self.tcp_port, is_mock=lancedb_mock).run()),
-        ]
-
-        for name, coro in services_to_run:
-            task = asyncio.create_task(self._supervise_coroutine(name, coro), name=f"Task_{name}")
+        # 4. Run every service under supervision
+        for name, factory in self.service_factories(lancedb_mgr, lancedb_mock):
+            task = asyncio.create_task(self._supervise(name, factory), name=f"Task_{name}")
             self.tasks.append(task)
 
         logger.info(f"✨ Todos los {len(self.tasks)} módulos neurales se ejecutan en un solo runtime Python.")
@@ -158,17 +130,50 @@ class BrainstemOrchestrator:
         finally:
             await self.stop()
 
-    async def _supervise_coroutine(self, name: str, coro: Any) -> None:
-        """Runs a service coroutine with automatic restart supervision."""
+    def service_factories(self, lancedb_mgr, lancedb_mock: bool) -> list[tuple[str, ServiceFactory]]:
+        """(name, factory) pairs. Each factory builds a fresh service coroutine, so a crashed service can be
+        restarted (a coroutine object can only be awaited once). Nothing is created until a factory is called."""
+        port = self.tcp_port
+        mock = self.is_service_mock
+
+        def gateway() -> Awaitable[None]:
+            # FastAPI gateway on 127.0.0.1:8000 (web HUD, Vision Studio API and WebSocket).
+            from sentidos.sistema_periferico import run_server
+
+            return run_server()
+
+        return [
+            ("Router Frontal", lambda: LLMRouter(port=port).run()),
+            ("LanceDB Daemon", lambda: lancedb_mgr.run()),
+            ("Hipocampo", lambda: Hipocampo(port=port).run()),
+            ("Visión Parietal", lambda: VisionParietal(port=port, force_mock=mock("vision_parietal")).run()),
+            ("Oído Parietal", lambda: OidoParietal(port=port, force_mock=mock("oido_parietal")).run()),
+            ("Habla Parietal", lambda: HablaParietal(port=port, force_mock=mock("habla_parietal")).run()),
+            ("Contexto Derecho", lambda: ContextoDerecho(port=port).run()),
+            ("Protocolo Intriga", lambda: ProtocoloIntriga(port=port, is_mock=mock("protocolo_intriga")).run()),
+            ("Web Search", lambda: WebSearchDaemon(port=port, is_mock=mock("web_search")).run()),
+            ("Ejecutor Izquierdo", lambda: EjecutorIzquierdo(port=port, is_mock=mock("ejecutor_izquierdo")).run()),
+            (
+                "Imaginación Occipital",
+                lambda: ImaginacionOccipital(port=port, force_mock=mock("imaginacion_occipital")).run(),
+            ),
+            ("Pineal Daemon", lambda: PinealDaemon(port=port, is_mock=lancedb_mock).run()),
+            ("Sistema Periférico", gateway),
+        ]
+
+    async def _supervise(self, name: str, factory: ServiceFactory) -> None:
+        """Runs a service, restarting it with a fresh coroutine after it crashes or exits."""
         while self.should_run:
             try:
                 logger.info(f"[{name.upper()}] Iniciando servicio...")
-                await coro
+                await factory()
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[{name.upper()}] Error en ejecución: {e}. Reiniciando en 3s...", exc_info=True)
-                await asyncio.sleep(3)
+                logger.error(f"[{name.upper()}] Error en ejecución: {e}", exc_info=True)
+            if self.should_run:
+                logger.warning(f"[{name.upper()}] Servicio detenido. Reiniciando en {RESTART_DELAY_SECONDS}s...")
+                await asyncio.sleep(RESTART_DELAY_SECONDS)
 
     async def stop(self) -> None:
         """Gracefully shuts down the orchestrator and all managed tasks."""

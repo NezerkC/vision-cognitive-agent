@@ -5,7 +5,7 @@ import os
 import signal
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 
 import yaml
 from dotenv import dotenv_values
@@ -23,6 +23,23 @@ logging.basicConfig(
 logger = logging.getLogger("Watchdog")
 
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def load_project_env(
+    project_root: str,
+    environ: MutableMapping[str, str] | None = None,
+    dotenv_path: str | os.PathLike | None = None,
+) -> None:
+    """Load the project .env into `environ` (default: this process) without overriding variables already set."""
+    environ = os.environ if environ is None else environ
+    dotenv_path = dotenv_path or os.path.join(project_root, ".env")
+    if os.path.exists(dotenv_path):
+        for key, value in dotenv_values(dotenv_path).items():
+            if value is not None:
+                environ.setdefault(key, value)
+
+
 def build_child_env(
     project_root: str,
     base_env: Mapping[str, str] | None = None,
@@ -35,11 +52,7 @@ def build_child_env(
     - UTF-8 stdio: services write to pipes, which default to the locale codec (cp1252 on Windows).
     """
     env = dict(os.environ if base_env is None else base_env)
-    dotenv_path = dotenv_path or os.path.join(project_root, ".env")
-    if os.path.exists(dotenv_path):
-        for key, value in dotenv_values(dotenv_path).items():
-            if value is not None:
-                env.setdefault(key, value)
+    load_project_env(project_root, env, dotenv_path)
     env["PYTHONPATH"] = os.pathsep.join(p for p in (project_root, env.get("PYTHONPATH")) if p)
     env["PYTHONIOENCODING"] = "utf-8"
     return env
@@ -289,7 +302,14 @@ async def main():
         finally:
             watchdog.stop()
     else:
-        # Default: Unified In-Process Hexagonal Orchestrator
+        # Default: Unified In-Process Hexagonal Orchestrator. Everything runs in this process, so give it what
+        # the watchdog gives its children: project packages importable, relative data paths anchored at the
+        # project root, and .env loaded.
+        if PROJECT_ROOT not in sys.path:
+            sys.path.insert(0, PROJECT_ROOT)
+        os.chdir(PROJECT_ROOT)
+        load_project_env(PROJECT_ROOT)
+
         from core.orchestrator import BrainstemOrchestrator
 
         logger.info("Ejecutando Orquestador Cerebral Unificado (Clean/Hexagonal in-memory mode)...")
