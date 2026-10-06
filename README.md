@@ -119,6 +119,9 @@ Folders are named after the brain region each part plays:
   pages cannot inject events.
 - Uploads are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES`. Notebook ids are checked against
   the notebook metadata before any file is written, so a crafted id cannot write outside the notebook's folder.
+- The file tree and file search only cover the folder opened through `/api/workspace/open` (filesystem roots are
+  refused, invalid paths return 404 instead of falling back to the repository). `clone_git` accepts only https/ssh
+  remotes and passes them after `--`, so a URL cannot smuggle git options.
 - `ejecutor_izquierdo` runs nothing on its own: every keyboard/mouse or shell action waits for an approve/reject ticket
   in the HUD (`canal.ejecucion.aprobacion`). Pending requests expire after 5 minutes and can be decided only once.
 - `.env`, `memoria_activa/` and `archivo_profundo/` are git-ignored; never commit keys.
