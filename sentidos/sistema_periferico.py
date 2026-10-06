@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 
-from cognitivo.cuadernos_manager import CuadernosManager
+from cognitivo.cuadernos_manager import CuadernosManager, NotebookNotFoundError
 from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
 from sentidos.seguridad_local import accept_local_websocket, install_local_origin_guards
 
@@ -1303,7 +1303,10 @@ async def api_investigar_cuaderno(request: Request):
 
 @app.delete("/api/cuadernos/{notebook_id}")
 async def api_delete_cuaderno(notebook_id: str):
-    success = (await get_cuadernos_mgr()).delete_cuaderno(notebook_id)
+    try:
+        success = (await get_cuadernos_mgr()).delete_cuaderno(notebook_id)
+    except NotebookNotFoundError:
+        success = False
     if not success:
         return JSONResponse(status_code=404, content={"status": "error", "message": "Cuaderno no encontrado"})
     return {"status": "success", "message": f"Cuaderno {notebook_id} eliminado"}
@@ -1315,6 +1318,8 @@ async def api_add_fuente_cuaderno(notebook_id: str, file: UploadFile = File(...)
         content = await file.read()
         fuente = await (await get_cuadernos_mgr()).add_fuente(notebook_id, file.filename, content, description)
         return {"status": "success", "fuente": fuente}
+    except NotebookNotFoundError as e:
+        return JSONResponse(status_code=404, content={"status": "error", "message": str(e)})
     except Exception as e:
         return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
 
@@ -1333,6 +1338,11 @@ async def api_generar_sintesis_cuaderno(notebook_id: str, request: Request):
 
 @app.post("/api/cuadernos/{notebook_id}/chat")
 async def api_chat_cuaderno(notebook_id: str, request: Request):
+    mgr = await get_cuadernos_mgr()
+    try:
+        mgr.ensure_cuaderno(notebook_id)
+    except NotebookNotFoundError as e:
+        return JSONResponse(status_code=404, content={"status": "error", "message": str(e)})
     body = await request.json()
     query = body.get("query", "")
     history = body.get("history", [])
@@ -1346,7 +1356,7 @@ async def api_chat_cuaderno(notebook_id: str, request: Request):
     response_style = body.get("response_style", "conciso")
 
     async def stream_generator():
-        async for chunk in (await get_cuadernos_mgr()).chat_cuaderno_stream(
+        async for chunk in mgr.chat_cuaderno_stream(
             notebook_id=notebook_id,
             query=query,
             history=history,
