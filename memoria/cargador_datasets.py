@@ -65,35 +65,20 @@ async def guardar_recuerdo(
         _guardar_manager = LanceDBManager()
         _guardar_manager.init_db(mock_embedder=False)
 
-    try:
-        rows = []
-        from memoria.lancedb_manager import RecursiveCharacterTextSplitter
-
-        splitter = RecursiveCharacterTextSplitter(chunk_size=512, chunk_overlap=50)
-        chunks = splitter.split_text(texto)
-
-        loop = asyncio.get_running_loop()
-        for chunk in chunks:
-            vector = await loop.run_in_executor(None, _guardar_manager.embedder.embed_query, chunk)
-            rows.append(
-                {
-                    "vector": vector,
-                    "text": chunk,
-                    "coordenada_x": coordenada_x,
-                    "coordenada_y": coordenada_y,
-                    "temperatura_z": temperatura_z,
-                    "escala_magnitud": escala_magnitud,
-                    "metadata": json.dumps(metadata or {}),
-                }
-            )
-
-        _guardar_manager.table.add(rows)
-        logger.info(f"✅ Guardados {len(rows)} chunk(s) en memoria_activa.")
-        return True
-
-    except Exception as e:
-        logger.error(f"❌ Error guardando recuerdo: {e}")
-        return False
+    # The memory schema has no temperatura_z column: the "temperature" is the W weight, and it picks the tier.
+    payload = {
+        "text": texto,
+        "coordenada_x": coordenada_x,
+        "coordenada_y": coordenada_y,
+        "coordenada_z": 0.0,
+        "coordenada_w": temperatura_z,
+        "escala_magnitud": escala_magnitud,
+        "metadata": {**(metadata or {}), "tier": "hot" if temperatura_z > 50 else "cold"},
+    }
+    saved = await _guardar_manager.handle_guardar(None, payload)
+    if saved:
+        logger.info("✅ Recuerdo guardado en la memoria.")
+    return saved
 
 
 # ─────────────────────────────────────────────────────────────────

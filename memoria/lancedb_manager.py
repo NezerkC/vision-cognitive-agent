@@ -254,14 +254,14 @@ class LanceDBManager:
     def build_hot_cold_indices(self):
         """Builds HNSW index for Hot tier and PQ index for Cold tier."""
         try:
-            if self.table and self.table.count_rows() >= 256:
+            if self.table is not None and self.table.count_rows() >= 256:
                 try:
                     self.table.create_index(metric="cosine", num_partitions=16, num_sub_vectors=64, index_type="IVF_PQ")
                     logger.info("Created HNSW/IVF index on Hot table.")
                 except Exception as e:
                     logger.debug(f"Hot table index creation notice: {e}")
 
-            if self.cold_table and self.cold_table.count_rows() >= 256:
+            if self.cold_table is not None and self.cold_table.count_rows() >= 256:
                 try:
                     self.cold_table.create_index(
                         metric="cosine", num_partitions=16, num_sub_vectors=32, index_type="IVF_PQ"
@@ -316,7 +316,8 @@ class LanceDBManager:
                 logger.error(f"Error in LanceDB loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
 
-    async def handle_guardar(self, writer, data: dict):
+    async def handle_guardar(self, writer, data: dict) -> bool:
+        """Chunk, embed and store a memory in the hot or cold tier. Returns whether anything was saved."""
         try:
             text = data.get("text", "")
             meta = data.get("metadata", {})
@@ -337,7 +338,7 @@ class LanceDBManager:
 
             if not text:
                 logger.warning("Attempted to save empty text. Skipped.")
-                return
+                return False
 
             # Chunk document using LangChain RecursiveCharacterTextSplitter
             chunks = self.text_splitter.split_text(text)
@@ -361,14 +362,19 @@ class LanceDBManager:
                 )
 
             # Save rows to designated LanceDB tier table
-            target_table = self.table if tier == "hot" else (self.cold_table or self.table)
+            # An empty LanceDB table is falsy (len 0), so test for None explicitly.
+            target_table = self.table if tier == "hot" or self.cold_table is None else self.cold_table
+            if target_table is None:
+                raise RuntimeError("Memory tables are not initialized.")
             target_table.add(rows)
             logger.info(f"Successfully saved {len(chunks)} chunks to {tier.upper()} table.")
+            return True
 
         except Exception as e:
             logger.error(f"Database error during guardar operation: {e}")
             if writer:
                 await self.publish_error(writer, f"Guardar failed: {str(e)}")
+            return False
 
     async def buscar_hibrido_rrf_impl(
         self,

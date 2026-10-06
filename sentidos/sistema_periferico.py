@@ -380,25 +380,34 @@ async def get_memoria():
         return []
     try:
         db = lancedb.connect(db_path)
-        if "memoria_fractal" in db.list_tables():
-            tbl = db.open_table("memoria_fractal")
-            df = tbl.to_pandas()
-            results = []
-            for _, row in df.iterrows():
-                results.append(
-                    {
-                        "id": row.get("id", ""),
-                        "texto": row.get("texto", ""),
-                        "x": float(row.get("x", 0.0)),
-                        "y": float(row.get("y", 0.0)),
-                        "z": float(row.get("z", 0.0)),
-                        "timestamp": float(row.get("timestamp", 0.0)),
-                    }
-                )
-            return results
+        if "memoria_fractal" not in db.table_names():
+            return []
+        columns = ["text", "coordenada_x", "coordenada_y", "coordenada_z", "coordenada_w", "metadata"]
+        rows = db.open_table("memoria_fractal").to_arrow().select(columns).to_pylist()
     except Exception as e:
         logger.error(f"Error reading memory for API: {e}")
-    return []
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+    results = []
+    for index, row in enumerate(rows):
+        try:
+            meta = json.loads(row.get("metadata") or "{}")
+        except json.JSONDecodeError:
+            meta = {}
+        results.append(
+            {
+                # The table has no id column; the row position is stable for one response.
+                "id": str(index),
+                "texto": row["text"],
+                "x": row["coordenada_x"],
+                "y": row["coordenada_y"],
+                "z": row["coordenada_z"],
+                "w": row["coordenada_w"],
+                "metadata": meta,
+                "timestamp": meta.get("timestamp"),
+            }
+        )
+    return results
 
 
 @app.get("/models")
@@ -879,7 +888,8 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                 "text": text_content,
                 "coordenada_x": 0.0,
                 "coordenada_y": 0.0,
-                "temperatura_z": 100.0,  # Save to SSD Hot memory tier
+                "coordenada_z": 0.0,
+                "coordenada_w": 100.0,  # High W: keep explicitly taught material in the hot tier
                 "escala_magnitud": "KB",
                 "metadata": metadata_payload,
             },
