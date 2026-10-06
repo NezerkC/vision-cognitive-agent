@@ -127,6 +127,9 @@ Folders are named after the brain region each part plays:
   and must stay inside it, reads are capped at 10 MB, and every PowerShell command needs confirmation in a native
   dialog that script in the webview cannot skip. Each command is granted explicitly in
   `vision_studio/src-tauri/capabilities/default.json`, and the app ships a Content Security Policy.
+- Auto-training never writes code into the package: tool code the LLM writes for a detected CLI is kept only if it
+  parses and defines a `@tool` function, and it goes to `memoria_activa/skills_propuestas/<cli>_tool.py.txt` for a
+  human to review before moving it into `cognitivo/skills/`.
 - `ejecutor_izquierdo` runs nothing on its own: every keyboard/mouse or shell action waits for an approve/reject ticket
   in the HUD (`canal.ejecucion.aprobacion`). Pending requests expire after 5 minutes and can be decided only once.
 - `.env`, `memoria_activa/` and `archivo_profundo/` are git-ignored; never commit keys.
