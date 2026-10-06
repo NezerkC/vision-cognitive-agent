@@ -81,9 +81,10 @@ class LLMRouter:
         models_cfg = self.config.get("models", {})
         return models_cfg.get(effort, {})
 
-    async def call_llm(self, effort: str, prompt: str, mock: bool = False) -> tuple[str, str]:
+    async def call_llm(self, effort: str, prompt: str) -> tuple[str, str]:
         """
-        Calls the model for the given effort level. Falls back recursively if it fails.
+        Calls the model for the given effort level. Falls back recursively if it fails, and raises the last
+        error when no model answers.
         Returns: (response_text, model_name_used)
         """
         model_cfg = self.get_model_config(effort)
@@ -120,12 +121,6 @@ class LLMRouter:
                         logger.info(f"Emotional override: state '{estado}' forced temperature to 0.0")
         except Exception as e:
             logger.warning(f"Failed to load emotions config: {e}")
-
-        if mock:
-            logger.info(
-                f"[MOCK] Simulating completion for model {model_name} at effort '{effort}' (Temp: {temp}, MaxTokens: {max_tokens})"
-            )
-            return f"Mock response for prompt: '{prompt}' using {model_name} (temperature={temp})", model_name
 
         # Ensure local model is downloaded if it is an Ollama model
         if model_name.startswith("ollama/"):
@@ -192,7 +187,7 @@ class LLMRouter:
             if fallback:
                 logger.info(f"Falling back from '{effort}' to '{fallback}'...")
                 try:
-                    return await self.call_llm(fallback, prompt, mock)
+                    return await self.call_llm(fallback, prompt)
                 except Exception as fb_err:
                     logger.warning(f"Fallback '{fallback}' also failed: {fb_err}")
 
@@ -317,20 +312,19 @@ class LLMRouter:
                         request_id = data.get("request_id")
                         prompt = data.get("prompt")
                         effort = data.get("esfuerzo_requerido", "esfuerzo_bajo")
-                        mock = data.get("mock", False)
 
                         if not request_id or not prompt:
                             logger.error("Received malformed request event.")
                             continue
 
                         # Process prompt asynchronously to not block event loop
-                        asyncio.create_task(self.process_request(writer, request_id, prompt, effort, mock))
+                        asyncio.create_task(self.process_request(writer, request_id, prompt, effort))
 
             except Exception as e:
                 logger.error(f"Error in LLM Router loop: {e}. Retrying connection in 5 seconds...")
                 await asyncio.sleep(5)
 
-    async def process_request(self, writer, request_id: str, prompt: str, effort: str, mock: bool):
+    async def process_request(self, writer, request_id: str, prompt: str, effort: str):
         try:
             await self.publish_log(writer, "🤖 [Lóbulo Frontal] Procesando petición en Tren de Información (Grafo)...")
 
@@ -338,7 +332,7 @@ class LLMRouter:
             from orquestador_graph import ejecutar_orquestador_graph
 
             response_text = await ejecutar_orquestador_graph(
-                prompt, request_id, mock, memory_search=self.perform_memory_search
+                prompt, request_id, memory_search=self.perform_memory_search
             )
 
             response_event = {
@@ -373,27 +367,25 @@ class LLMRouter:
 _global_router: LLMRouter | None = None
 
 
-async def enrutar_peticion(prompt: str, esfuerzo: str = "esfuerzo_bajo", mock: bool = False) -> str:
+async def enrutar_peticion(prompt: str, esfuerzo: str = "esfuerzo_bajo") -> str:
     """
     Función módulo-level para llamar al LLM desde cualquier agente.
 
     Args:
         prompt: El texto a enviar al modelo.
         esfuerzo: "esfuerzo_bajo", "esfuerzo_medio", o "esfuerzo_alto".
-        mock: Si True, devuelve una respuesta simulada.
 
     Returns:
         El texto de respuesta del modelo.
+
+    Raises:
+        El error del último modelo intentado cuando ninguno responde; nunca lo devuelve como si fuera la respuesta.
     """
     global _global_router
     if _global_router is None:
         _global_router = LLMRouter()
-    try:
-        respuesta, modelo = await _global_router.call_llm(esfuerzo, prompt, mock=mock)
-        return respuesta
-    except Exception as e:
-        logger.error(f"enrutar_peticion falló: {e}")
-        return f"⚠️ Error al enrutar la petición: {e}"
+    respuesta, _modelo = await _global_router.call_llm(esfuerzo, prompt)
+    return respuesta
 
 
 if __name__ == "__main__":

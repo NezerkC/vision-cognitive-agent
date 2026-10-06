@@ -19,7 +19,6 @@ class EstadoAgente(TypedDict):
     vagones_informacion: Annotated[list, operator.add]
     respuesta_final: str
     request_id: str
-    mock: bool
 
 
 # Node 1: Planificador
@@ -110,18 +109,9 @@ def _get_current_emotion() -> str:
 async def nodo_memoria(state: EstadoAgente, config: RunnableConfig) -> dict:
     logger.info("--- NODO MEMORIA ---")
     input_usuario = state["input_usuario"]
-    mock = state.get("mock", False)
     request_id = state.get("request_id", "default")
     ruta = state.get("ruta_planeada", [])
     nueva_ruta = ruta[1:] if len(ruta) > 0 else []
-
-    if mock:
-        return {
-            "vagones_informacion": [
-                {"estacion": "memoria", "resultado": "Mock database memory context for: " + input_usuario}
-            ],
-            "ruta_planeada": nueva_ruta,
-        }
 
     # Injected by the caller (LLMRouter.perform_memory_search). Importing a router global here does not work:
     # llm_router runs as __main__, so `import llm_router` would load a second module copy whose global is None.
@@ -157,17 +147,10 @@ async def nodo_memoria(state: EstadoAgente, config: RunnableConfig) -> dict:
 async def nodo_herramientas(state: EstadoAgente) -> dict:
     logger.info("--- NODO HERRAMIENTAS ---")
     input_usuario = state["input_usuario"]
-    mock = state.get("mock", False)
     ruta = state.get("ruta_planeada", [])
     nueva_ruta = ruta[1:] if len(ruta) > 0 else []
 
     # Extract emotion update parameters using LLM Router
-    if mock:
-        return {
-            "vagones_informacion": [{"estacion": "herramientas", "resultado": "Mock tool execution completed."}],
-            "ruta_planeada": nueva_ruta,
-        }
-
     from llm_router import enrutar_peticion
     from skills.sistema_emocional import actualizar_emocion
 
@@ -212,30 +195,8 @@ async def nodo_herramientas(state: EstadoAgente) -> dict:
 async def nodo_web(state: EstadoAgente) -> dict:
     logger.info("--- NODO WEB ---")
     input_usuario = state["input_usuario"]
-    mock = state.get("mock", False)
     ruta = state.get("ruta_planeada", [])
     nueva_ruta = ruta[1:] if len(ruta) > 0 else []
-
-    if mock:
-        return {
-            "vagones_informacion": [
-                {
-                    "estacion": "web",
-                    "resultado": {
-                        "status": "success",
-                        "source": "mock",
-                        "results": [
-                            {
-                                "title": "Resultado simulado",
-                                "url": "",
-                                "snippet": f"Simulated web search for: {input_usuario}",
-                            }
-                        ],
-                    },
-                }
-            ],
-            "ruta_planeada": nueva_ruta,
-        }
 
     try:
         from skills.websearch_tool import buscar_en_web_func
@@ -260,7 +221,6 @@ async def nodo_web(state: EstadoAgente) -> dict:
 async def nodo_respuesta(state: EstadoAgente) -> dict:
     logger.info("--- NODO RESPUESTA ---")
     input_usuario = state["input_usuario"]
-    mock = state.get("mock", False)
     vagones = state.get("vagones_informacion", [])
 
     # Load personality configuration
@@ -296,10 +256,7 @@ async def nodo_respuesta(state: EstadoAgente) -> dict:
         res = v.get("resultado", "")
         context_str += f"\n--- ESTACIÓN: {est} ---\n{json.dumps(res, indent=2, ensure_ascii=False)}\n"
 
-    # Call LLM for final response synthesis
-    if mock:
-        return {"respuesta_final": f"Mock response for: {input_usuario} [State: {emotions_str}]"}
-
+    # Call LLM for final response synthesis; errors propagate so the request is reported as failed.
     from llm_router import enrutar_peticion
 
     synthesis_prompt = (
@@ -310,11 +267,8 @@ async def nodo_respuesta(state: EstadoAgente) -> dict:
         "Genera tu respuesta final de ingeniería colaborativa en base a los datos recolectados. Responde directamente en español."
     )
 
-    try:
-        final_answer = await enrutar_peticion(synthesis_prompt, esfuerzo="esfuerzo_medio")
-        return {"respuesta_final": final_answer}
-    except Exception as e:
-        return {"respuesta_final": f"Error al sintetizar respuesta: {str(e)}"}
+    final_answer = await enrutar_peticion(synthesis_prompt, esfuerzo="esfuerzo_medio")
+    return {"respuesta_final": final_answer}
 
 
 # Conditional routing edge
@@ -400,11 +354,11 @@ orquestador_graph = workflow.compile()
 async def ejecutar_orquestador_graph(
     input_usuario: str,
     request_id: str,
-    mock: bool = False,
     memory_search: Callable[..., Awaitable[list]] | None = None,
 ) -> str:
     """
     Executes the compiled StateGraph with the given input and returns the final answer.
+    Errors propagate to the caller, which reports the request as failed.
 
     memory_search: async (request_id, query, emotion_filter=...) -> list of memory hits, used by nodo_memoria.
     """
@@ -414,13 +368,11 @@ async def ejecutar_orquestador_graph(
         "vagones_informacion": [],
         "respuesta_final": "",
         "request_id": request_id,
-        "mock": mock,
     }
-    try:
-        final_state = await orquestador_graph.ainvoke(
-            initial_state, config={"configurable": {"memory_search": memory_search}}
-        )
-        return final_state.get("respuesta_final", "Error: No se produjo respuesta final.")
-    except Exception as e:
-        logger.error(f"Error executing StateGraph: {e}")
-        return f"Error en el núcleo cognitivo de grafo: {str(e)}"
+    final_state = await orquestador_graph.ainvoke(
+        initial_state, config={"configurable": {"memory_search": memory_search}}
+    )
+    answer = final_state.get("respuesta_final")
+    if not answer:
+        raise RuntimeError("The cognitive graph finished without a final answer.")
+    return answer
