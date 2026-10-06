@@ -135,6 +135,8 @@ Folders are named after the brain region each part plays:
   and must stay inside it, reads are capped at 10 MB, and every PowerShell command needs confirmation in a native
   dialog that script in the webview cannot skip. Each command is granted explicitly in
   `vision_studio/src-tauri/capabilities/default.json`, and the app ships a Content Security Policy.
+- When the curiosity protocol spots an error on screen it asks first (HUD ticket or a spoken "sí"/"no") before
+  sending the error text to web search, and it saves only real search results with their URLs.
 - Auto-training never writes code into the package: tool code the LLM writes for a detected CLI is kept only if it
   parses and defines a `@tool` function, and it goes to `memoria_activa/skills_propuestas/<cli>_tool.py.txt` for a
   human to review before moving it into `cognitivo/skills/`.

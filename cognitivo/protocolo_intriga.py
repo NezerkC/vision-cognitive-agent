@@ -1,13 +1,11 @@
 import asyncio
 import json
 import logging
-import os
 import sys
 import time
 
-import aiohttp
-
 from cognitivo.propuestas_skills import is_valid_tool_code, save_proposal, validate_cli_name
+from cognitivo.skills.websearch_tool import WebSearchEngine
 
 # Configure logging
 logging.basicConfig(
@@ -16,6 +14,10 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("ProtocoloIntriga")
+
+# First word of the answer to a research ticket, from voice or from the HUD ticket buttons.
+APPROVAL_WORDS = {"si", "sí", "dale", "ok", "procede", "adelante", "yes"}
+REJECTION_WORDS = {"no", "abortar", "aborta", "cancela", "cancelar"}
 
 
 class ProtocoloIntriga:
@@ -30,41 +32,23 @@ class ProtocoloIntriga:
         self.last_reported_error = None
         self.last_report_time = 0.0
 
-    async def call_tavily_search(self, query: str) -> str:
+    async def buscar_en_web(self, query: str) -> str | None:
         """
-        Queries Tavily Search API. If no key is set or call fails, falls back to a simulated solution.
+        Web search through the shared engine (DuckDuckGo, then Tavily). Returns the top results with their
+        URLs, or None when nothing was found; it never makes up an answer.
         """
-        api_key = os.environ.get("TAVILY_API_KEY")
-        if not api_key:
-            logger.warning("TAVILY_API_KEY not found in environment. Simulating web search solution.")
-            await asyncio.sleep(2.0)
-            return (
-                f"Solución Simulada para '{query}': "
-                "Para solucionar fallos en iGPU Radeon o dGPU NVIDIA RTX 5060 Ti con codificadores de pantalla, "
-                "actualice los controladores gráficos y reinstale FFMPEG de forma limpia en Windows."
-            )
+        response = await WebSearchEngine().buscar(query, max_results=5)
+        if response.status != "success" or not response.results:
+            logger.warning(f"Web search found nothing for '{query}': {response.error or response.status}")
+            return None
+        return "\n\n".join(f"{r.title}\n{r.url}\n{r.snippet}" for r in response.results)
 
-        logger.info(f"Executing Tavily web search for query: '{query}'...")
+    async def _publish(self, writer, topic: str, data: dict):
         try:
-            async with aiohttp.ClientSession() as session:
-                url = "https://api.tavily.com/search"
-                payload = {"api_key": api_key, "query": query, "search_depth": "basic", "include_answer": True}
-                async with session.post(url, json=payload, timeout=8.0) as resp:
-                    if resp.status == 200:
-                        res_data = await resp.json()
-                        answer = res_data.get("answer")
-                        if answer:
-                            return answer
-                        results = res_data.get("results", [])
-                        if results:
-                            return results[0].get("content", "No information found.")
-                        return "Búsqueda web completada sin resultados."
-                    else:
-                        logger.warning(f"Tavily returned HTTP {resp.status}. Falling back to simulation.")
-                        return "Solución alternativa: Error de hardware en iGPU/AMD. Actualice drivers."
+            writer.write((json.dumps({"action": "publish", "topic": topic, "data": data}) + "\n").encode("utf-8"))
+            await writer.drain()
         except Exception as e:
-            logger.error(f"Error during Tavily search: {e}")
-            return "Solución alternativa: Fallo de red. Instale ffmpeg y actualice drivers."
+            logger.error(f"Failed to publish to {topic}: {e}")
 
     async def process_context(self, context_str: str, writer):
         """
@@ -102,59 +86,68 @@ class ProtocoloIntriga:
         self.last_report_time = current_time
 
         self.active_error = error_text
-        self.waiting_for_confirmation = False
+        # Researching sends the on-screen error text to external search engines, so ask first (HITL).
+        self.waiting_for_confirmation = True
+        logger.info(f"Anomalía detectada en pantalla: '{error_text}'. Esperando permiso para investigar.")
 
-        logger.info(f"Anomalía detectada en pantalla: '{error_text}'")
+        await self._publish(
+            writer,
+            "canal.sistema.anuncios",
+            {
+                "mensaje": (
+                    f"[PROTOCOLO INTRIGA] Detecté el error '{error_text}'. ¿Me das permiso para crear un ticket de "
+                    "situación e investigar la solución en la web?"
+                ),
+                "error_original": error_text,
+                "timestamp": current_time,
+            },
+        )
 
-        # Print a highlighted message for the developer
-        print(f"\n\033[93m[ALERTA DE INTRIGA] Error detectado: '{error_text}'\033[0m")
-        print("\033[92mGenerando ticket de situación e iniciando investigación automática en la web...\033[0m\n")
+    async def handle_transcription(self, text: str, writer):
+        """Answers to a pending research ticket ("sí, procede" / "no, abortar") from voice or the HUD ticket."""
+        if not self.waiting_for_confirmation:
+            return
+        words = text.strip().lower().replace(",", " ").split()
+        first = words[0] if words else ""
+        if first in APPROVAL_WORDS:
+            self.waiting_for_confirmation = False
+            await self._iniciar_investigacion(writer)
+        elif first in REJECTION_WORDS:
+            self.waiting_for_confirmation = False
+            logger.info(f"Investigación cancelada por el usuario: '{self.active_error}'")
+            await self._publish(
+                writer,
+                "canal.sistema.anuncios",
+                {
+                    "mensaje": f"[PROTOCOLO INTRIGA] Investigación cancelada: '{self.active_error}'.",
+                    "timestamp": time.time(),
+                },
+            )
+            self.active_error = None
 
-        # Formulate query request to LLM Router (Lóbulo Frontal)
+    async def _iniciar_investigacion(self, writer):
+        """Ask the frontal lobe for a search query for the approved error ticket."""
         req_id = f"intriga-search-formulation-{int(time.time())}"
-        llm_request = {
-            "action": "publish",
-            "topic": "canal.cognitivo.peticion",
-            "data": {
+        await self._publish(
+            writer,
+            "canal.cognitivo.peticion",
+            {
                 "request_id": req_id,
                 "prompt": (
                     f"Eres un investigador de IT. El usuario tuvo el error [{self.active_error}]. "
                     "Formula una consulta de búsqueda web altamente técnica para solucionar esto, "
                     "deduciendo e incluyendo posibles arquitecturas de hardware (gráficas integradas, AMD, Intel) "
-                    "para abarcar las soluciones más probables."
+                    "para abarcar las soluciones más probables. Responde solo con la consulta."
                 ),
                 "esfuerzo_requerido": "esfuerzo_medio",
-                "mock": self.is_mock,
             },
-        }
-        try:
-            writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
-            await writer.drain()
-            logger.info(f"Dispatched search formulation request '{req_id}' to Lóbulo Frontal.")
-        except Exception as e:
-            logger.error(f"Failed to request search formulation: {e}")
-
-        # Publish alert event to the broker
-        payload = {
-            "action": "publish",
-            "topic": "canal.sistema.anuncios",
-            "data": {
-                "mensaje": f"[PROTOCOLO INTRIGA] Error detectado: '{error_text}'. Generando ticket e iniciando investigación...",
-                "error_original": error_text,
-                "timestamp": current_time,
-            },
-        }
-        try:
-            writer.write((json.dumps(payload) + "\n").encode("utf-8"))
-            await writer.drain()
-        except Exception as e:
-            logger.error(f"Failed to publish anomaly alert: {e}")
-
-    async def handle_transcription(self, text: str, writer):
-        """
-        Processes voice/text transcription events. Auto-ticketing is active, so this is a no-op.
-        """
-        pass
+        )
+        await self._publish(
+            writer,
+            "canal.sistema.anuncios",
+            {"mensaje": f"[PROTOCOLO INTRIGA] Investigando: '{self.active_error}'...", "timestamp": time.time()},
+        )
+        logger.info(f"Dispatched search formulation request '{req_id}' to Lóbulo Frontal.")
 
     async def handle_llm_response(self, request_id: str, response_text: str, writer):
         """
@@ -168,42 +161,44 @@ class ProtocoloIntriga:
             return
 
         logger.info(f"Search query formulated by Lóbulo Frontal: '{response_text}'")
+        error = self.active_error
+        self.active_error = None
 
-        # 1. Run web search
-        solution = await self.call_tavily_search(response_text)
-        logger.info("Search solution compiled successfully.")
+        solution = await self.buscar_en_web(response_text)
+        if solution is None:
+            await self._publish(
+                writer,
+                "canal.sistema.anuncios",
+                {
+                    "mensaje": f"[PROTOCOLO INTRIGA] No encontré una solución en la web para '{error}'. Ticket cerrado.",
+                    "timestamp": time.time(),
+                },
+            )
+            return
 
-        # 2. Save solution to LanceDB (Lóbulo Temporal)
-        save_payload = {
-            "action": "publish",
-            "topic": "canal.memoria",
-            "data": {
+        await self._publish(
+            writer,
+            "canal.memoria",
+            {
                 "action": "guardar",
-                "text": f"Error: {self.active_error}\nBúsqueda: {response_text}\nSolución: {solution}",
+                "text": f"Error: {error}\nBúsqueda: {response_text}\nFuentes encontradas:\n{solution}",
                 "coordenada_x": 1.5,
                 "coordenada_y": 2.5,
                 "coordenada_z": 0.0,
                 "coordenada_w": 100.0,
                 "escala_magnitud": "KB",
-                "metadata": {
-                    "tipo": "solucion_error",
-                    "error_original": self.active_error,
-                    "query_utilizada": response_text,
-                },
+                "metadata": {"tipo": "solucion_error", "error_original": error, "query_utilizada": response_text},
             },
-        }
-        try:
-            writer.write((json.dumps(save_payload) + "\n").encode("utf-8"))
-            await writer.drain()
-            logger.info("Solution memory saved to LanceDB. Error ticket closed.")
-
-            # Print success message in green
-            print("\n\033[92m[TICKET CERRADO] Solución guardada con éxito en la memoria fractal:\033[0m")
-            print(f"\033[96m{solution}\033[0m\n")
-
-            self.active_error = None
-        except Exception as e:
-            logger.error(f"Failed to store solution in LanceDB: {e}")
+        )
+        await self._publish(
+            writer,
+            "canal.sistema.anuncios",
+            {
+                "mensaje": f"[PROTOCOLO INTRIGA] Guardé en memoria lo que encontré sobre '{error}'. Ticket cerrado.",
+                "timestamp": time.time(),
+            },
+        )
+        logger.info("Search results saved to memory. Error ticket closed.")
 
     async def _guardar_propuesta_herramienta(self, request_id: str, response_text: str, writer):
         """Quarantine LLM-written tool code for human review; it is never written into the package."""
@@ -271,13 +266,6 @@ class ProtocoloIntriga:
             },
         )
 
-    async def _publish(self, writer, topic: str, data: dict):
-        try:
-            writer.write((json.dumps({"action": "publish", "topic": topic, "data": data}) + "\n").encode("utf-8"))
-            await writer.drain()
-        except Exception as e:
-            logger.error(f"Failed to publish to {topic}: {e}")
-
     async def iniciar_protocolo_capacitacion(self, cli_name: str, writer):
         try:
             cli_name = validate_cli_name(cli_name)
@@ -286,10 +274,12 @@ class ProtocoloIntriga:
             return
         logger.info(f"🎓 [Protocolo de Capacitación] Iniciando auto-capacitación para la CLI: '{cli_name}'")
 
-        # 1. Search Tavily for CLI documentation and examples
+        # 1. Search the web for CLI documentation and examples; without them the LLM would only guess.
         search_query = f"how to use {cli_name} cli python commands documentation examples"
-        logger.info(f"Querying Tavily for '{cli_name}' documentation...")
-        documentation = await self.call_tavily_search(search_query)
+        documentation = await self.buscar_en_web(search_query)
+        if documentation is None:
+            logger.warning(f"[Capacitación] Sin documentación para '{cli_name}'; capacitación pospuesta.")
+            return
 
         # 2. Formulate LLM call to write the tool
         req_id = f"capacitacion-tool-{cli_name}-{int(time.time())}"
@@ -314,7 +304,6 @@ class ProtocoloIntriga:
                 "request_id": req_id,
                 "prompt": prompt_write_tool,
                 "esfuerzo_requerido": "esfuerzo_medio",
-                "mock": self.is_mock,
             },
         }
         try:
