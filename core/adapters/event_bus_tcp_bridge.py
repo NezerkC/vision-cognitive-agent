@@ -54,10 +54,19 @@ class TCPEventBusBridge:
                 if not line_bytes:
                     break
 
-                try:
-                    msg = json.loads(line_bytes.decode("utf-8").strip())
-                except json.JSONDecodeError:
+                text = line_bytes.decode("utf-8", errors="replace").strip()
+                if not text:
                     continue
+                try:
+                    msg = json.loads(text)
+                except json.JSONDecodeError:
+                    msg = None
+                if not isinstance(msg, dict):
+                    # Clients speak JSON-object lines only. Dropping the connection (instead of skipping the line)
+                    # stops cross-protocol attacks: a web page can POST to this port, and after its HTTP header
+                    # lines were skipped, its JSON body would have been processed as a legitimate event.
+                    logger.warning(f"Non-JSON-object input from {client_addr}; closing connection.")
+                    break
 
                 action = msg.get("action")
                 if action == "publish":
