@@ -99,7 +99,7 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 
 - [x] 4.1 `IImageGenerator` port in `core/ports/`.
 - [x] 4.2 ComfyUI adapter: queue with `POST /prompt`, wait through `/history`, download through `/view`. Configurable workflow and checkpoint. Raise when ComfyUI is unreachable.
-- [ ] 4.3 Google image adapter (Gemini API) behind a config key. Raise when the key is missing.
+- [x] 4.3 Google image adapter (Gemini API) behind a config key. Raise when the key is missing.
 - [ ] 4.4 Local-first routing between image adapters.
 - [ ] 4.5 Producer for `canal.imaginacion.peticion` (a chat command and a tool in the agent graph).
 - [ ] 4.6 Dream cycle in the pineal daemon: unload the local LLM, generate from high-W memories, store results in memory.
@@ -117,6 +117,7 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 ### Phase 4
 
 - 4.2 validate against a real ComfyUI with a downloaded checkpoint (the tests use a fake ComfyUI server, so the default workflow has not run on a real model yet).
+- 4.3 validate against the real Gemini API with a real key.
 
 ## Log
 
@@ -152,5 +153,6 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 
 - 4.1 `core/ports/image_generator.py` defines the `IImageGenerator` port (`generator_id`, `is_available()`, `generate(prompt, ImageOptions)` returning `GeneratedImage`). `ImageOptions` and `GeneratedImage` validate their fields (positive sizes and steps, non-empty raw bytes, an `image/*` MIME type, JSON-serializable metadata for memory, unknown keys rejected). `ImageGeneratorUnavailableError` and `ImageGenerationFailedError` carry the generator id and show their cause.
 - 4.2 `ComfyUIImageGenerator` (`core/adapters/comfyui_image_generator.py`) queues through `POST /prompt`, polls `/history/{prompt_id}` up to `timeout_seconds` and downloads through `/view`. Prompt, negative prompt, size, steps, seed and checkpoint are injected by node role, found through the KSampler links, from `config/comfyui_txt2img.json` (configured by `config/imaginacion.json`). Unreachable ComfyUI raises `ImageGeneratorUnavailableError`; node errors, empty runs and waits past the timeout raise `ImageGenerationFailedError`. The occipital takes an injected generator, saves successes under `artifacts/` and publishes `canal.imaginacion.respuesta` with `status`, `prompt`, `image_path`, `image_url`, `generator_id` and `metadata`, or `status: error` with `error`; the HUD shows failures. The fake ComfyUI tests cover the flow and every error path.
+- 4.3 `GeminiImageGenerator` (`core/adapters/gemini_image_generator.py`) calls the Gemini API through google-genai with `response_modalities=["IMAGE"]`. The key comes from the environment variable named by `gemini.api_key_env` in `config/imaginacion.json` (default `GEMINI_API_KEY`); a missing key makes `is_available()` False and `generate()` raise `ImageGeneratorUnavailableError`. Default model `gemini-3.1-flash-image` (`gemini.model`). A response without an image part raises `ImageGenerationFailedError`; rejected keys and HTTP 503 raise `ImageGeneratorUnavailableError`; other API errors raise `ImageGenerationFailedError`. Seed, negative prompt, steps and pixel sizes are not sent or recorded. The fake-client tests cover every path.
 
 ### Final summary
