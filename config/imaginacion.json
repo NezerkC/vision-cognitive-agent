@@ -1,0 +1,9 @@
+{
+  "descripcion": "Imagination generators. comfyui: url = ComfyUI base URL; workflow = API-format txt2img graph (path relative to the project root; nodes are found by role through links); checkpoint = ckpt_name for CheckpointLoaderSimple (null keeps the workflow value); timeout_seconds = how long to wait for the finished image before failing. Keys left out keep the defaults in core/adapters/comfyui_image_generator.py.",
+  "comfyui": {
+    "url": "http://127.0.0.1:8188",
+    "workflow": "config/comfyui_txt2img.json",
+    "checkpoint": "v1-5-pruned-emaonly.ckpt",
+    "timeout_seconds": 120
+  }
+}
