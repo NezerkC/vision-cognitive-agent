@@ -73,6 +73,19 @@ pub fn resolve_for_write(root: &Path, requested: &str) -> Result<PathBuf, String
     Ok(target)
 }
 
+/// `path` (canonical, inside `root`) relative to `root` with `/` separators, the form the explorer shows and sends
+/// back. The root itself is `""`.
+pub fn workspace_relative(root: &Path, path: &Path) -> Result<String, String> {
+    let rest = path
+        .strip_prefix(root)
+        .map_err(|_| outside_error(&path.display().to_string()))?;
+    Ok(rest
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/"))
+}
+
 fn absolute_in(root: &Path, requested: &str) -> PathBuf {
     let path = Path::new(requested);
     if path.is_absolute() {
@@ -163,5 +176,16 @@ mod tests {
         assert!(resolve_for_write(&root, "newdir/../../outside/new.txt").is_err());
         assert!(resolve_for_write(&root, outside.to_str().unwrap()).is_err());
         assert!(resolve_for_write(&root, "src").is_err());
+    }
+
+    #[test]
+    fn workspace_relative_uses_forward_slashes_from_the_root() {
+        let (_dir, root) = workspace();
+        assert_eq!(workspace_relative(&root, &root).unwrap(), "");
+        assert_eq!(
+            workspace_relative(&root, &root.join("src").join("main.py")).unwrap(),
+            "src/main.py"
+        );
+        assert!(workspace_relative(&root, root.parent().unwrap()).is_err());
     }
 }

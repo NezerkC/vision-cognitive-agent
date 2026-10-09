@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Panel, Group, useDefaultLayout } from "react-resizable-panels";
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useNotificationStore } from './stores/useNotificationStore';
+import { useWorkspaceStore } from './stores/useWorkspaceStore';
 import SettingsModal from './components/Settings/SettingsModal';
 import ToastContainer from './components/Notifications/ToastContainer';
 import TitleBar from './components/Layout/TitleBar';
@@ -24,13 +25,26 @@ export default function App() {
   const activeSidebarTab = useSettingsStore((state) => state.activeSidebarTab);
   const currentWorkspacePath = useSettingsStore((state) => state.currentWorkspacePath);
   const addToast = useNotificationStore((state) => state.addToast);
+  const workspaceOpened = useWorkspaceStore((state) => state.opened);
+  const workspaceFailed = useWorkspaceStore((state) => state.failed);
 
-  // The Rust file and shell commands only act inside the workspace registered here.
+  // The Rust file and shell commands only act inside the workspace registered here. The explorer waits for the root
+  // Rust confirms, so it never lists before Rust switched to the new folder; replies for a replaced path are ignored.
   useEffect(() => {
-    invoke<string>('set_workspace', { path: currentWorkspacePath }).catch((err) =>
-      addToast({ title: 'Proyecto no disponible', message: String(err), type: 'error' })
-    );
-  }, [currentWorkspacePath, addToast]);
+    let current = true;
+    invoke<string>('set_workspace', { path: currentWorkspacePath })
+      .then((root) => {
+        if (current) workspaceOpened(root);
+      })
+      .catch((err) => {
+        if (!current) return;
+        workspaceFailed(String(err));
+        addToast({ title: 'Proyecto no disponible', message: String(err), type: 'error' });
+      });
+    return () => {
+      current = false;
+    };
+  }, [currentWorkspacePath, addToast, workspaceOpened, workspaceFailed]);
 
   // Persist panel layouts across reloads (localStorage); replaces the pre-v4 autoSaveId prop.
   const mainLayout = useDefaultLayout({ id: 'vision-layout' });

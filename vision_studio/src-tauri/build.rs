@@ -3,6 +3,7 @@
 const APP_COMMANDS: &[&str] = &[
     "web_search_duckduckgo",
     "set_workspace",
+    "list_dir",
     "read_file_content",
     "write_file_content",
     "execute_powershell_command",

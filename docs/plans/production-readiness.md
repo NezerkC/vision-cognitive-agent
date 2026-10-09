@@ -84,7 +84,7 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 
 ## Phase 3: Vision Studio file manager
 
-- [ ] 3.1 Rust `list_dir` command: lazy, folders first, ignore `.git` and `node_modules`, show other dotfiles, entry cap, scoped to the workspace.
+- [x] 3.1 Rust `list_dir` command: lazy, folders first, ignore `.git` and `node_modules`, show other dotfiles, entry cap, scoped to the workspace.
 - [ ] 3.2 Native folder dialog with `tauri-plugin-dialog`. Remove the hardcoded recent-project path.
 - [ ] 3.3 Open a file into Monaco: open-files store, language from extension, binary and large-file detection.
 - [ ] 3.4 Ctrl+S saves. Dirty indicator, multiple tabs, close with an unsaved-changes prompt. Real Ln/Col and language in the status bar.
@@ -145,6 +145,8 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 ### Phase 2
 
 ### Phase 3
+
+- 3.1 Rust `list_dir(path)` lists one workspace folder per call (`""` is the root): folders first, `.git` and `node_modules` hidden, other dotfiles shown, at most 2000 entries with `truncated`/`total`, paths confined to the workspace. Vision Studio's FileTree lists folders lazily through `invoke` and shows the command's errors.
 
 ### Phase 4
 

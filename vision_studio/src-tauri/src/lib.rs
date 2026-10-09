@@ -6,8 +6,10 @@ use std::process::Command;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
+mod explorer;
 mod workspace;
 
+use explorer::{DirListing, MAX_DIR_ENTRIES};
 use workspace::{
     resolve_existing, resolve_for_write, validate_workspace_root, WorkspaceState, MAX_READ_BYTES,
 };
@@ -29,6 +31,16 @@ fn set_workspace(state: State<'_, WorkspaceState>, path: String) -> Result<Strin
         .lock()
         .map_err(|_| "Estado del proyecto no disponible.".to_string())? = Some(root);
     Ok(shown)
+}
+
+/// Lists one folder level of the workspace for the explorer: folders first, `.git` and `node_modules` hidden, at most
+/// `MAX_DIR_ENTRIES` entries. `path` is relative to the workspace root (`""` for the root) or absolute inside it.
+#[tauri::command]
+async fn list_dir(state: State<'_, WorkspaceState>, path: String) -> Result<DirListing, String> {
+    let root = state.root()?;
+    tauri::async_runtime::spawn_blocking(move || explorer::list_dir(&root, &path, MAX_DIR_ENTRIES))
+        .await
+        .map_err(|e| format!("No se pudo listar la carpeta: {}", e))?
 }
 
 #[tauri::command]
@@ -183,6 +195,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             web_search_duckduckgo,
             set_workspace,
+            list_dir,
             read_file_content,
             write_file_content,
             execute_powershell_command

@@ -8,6 +8,7 @@
     "opener:default",
     "allow-web-search-duckduckgo",
     "allow-set-workspace",
+    "allow-list-dir",
     "allow-read-file-content",
     "allow-write-file-content",
     "allow-execute-powershell-command"
