@@ -171,12 +171,12 @@ function connectWebSocket() {
 // ===========================================================================
 const SERVICE_NAMES = {
     broker: "BROKER", amigdala: "AMÍGDALA", router: "ROUTER",
-    lancedb: "DB", hipocampo: "HIPOCAMPO", vision: "VISIÓN",
+    lancedb: "DB", vision: "VISIÓN",
     contexto: "CONTEXTO", oido: "OÍDO", ejecutor: "EJECUTOR",
     imaginacion: "IMAGINACIÓN", periferico: "PERIFÉRICO", intriga: "INTRIGA"
 };
 const SERVICE_ORDER = [
-    "broker", "amigdala", "router", "lancedb", "hipocampo",
+    "broker", "amigdala", "router", "lancedb",
     "vision", "contexto", "oido", "ejecutor", "imaginacion",
     "periferico", "intriga"
 ];

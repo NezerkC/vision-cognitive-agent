@@ -1,4 +1,4 @@
-"""Tests for the web search tool and its broker daemon. Backends are patched: these tests never touch the network.
+"""Tests for the web search tool. Backends are patched: these tests never touch the network.
 
 The live DuckDuckGo check is in tests/integration/test_websearch_live.py.
 """
@@ -16,18 +16,6 @@ from cognitivo.skills.websearch_tool import (
     WebSearchEngine,
     buscar_en_web_func,
 )
-from cognitivo.web_search import WebSearchDaemon
-
-
-class FakeWriter:
-    def __init__(self):
-        self.events = []
-
-    def write(self, data: bytes):
-        self.events.append(json.loads(data.decode("utf-8")))
-
-    async def drain(self):
-        pass
 
 
 def _results(source: str, count: int) -> list[SearchResult]:
@@ -232,43 +220,3 @@ class TestBuscarEnWeb:
         assert data["source"] == "duckduckgo"
         assert data["results"] == [{"title": "DDG", "url": "https://ddg.com", "snippet": "From DDG"}]
         assert "timestamp" in data
-
-
-# ──────────────────────────────────────────────
-# WebSearchDaemon Tests
-# ──────────────────────────────────────────────
-
-
-class TestWebSearchDaemon:
-    @pytest.mark.asyncio
-    async def test_empty_query_is_an_error_without_a_source(self):
-        writer = FakeWriter()
-
-        await WebSearchDaemon().handle_search_request({"request_id": "web-1", "query": "  "}, writer)
-
-        [event] = writer.events
-        assert event["topic"] == "canal.web.resultado"
-        assert event["data"]["status"] == "error"
-        assert event["data"]["source"] == "none"
-
-    @pytest.mark.asyncio
-    async def test_engine_failure_is_an_error_without_a_source(self, monkeypatch):
-        daemon = WebSearchDaemon()
-        monkeypatch.setattr(daemon.engine, "buscar", AsyncMock(side_effect=RuntimeError("network down")))
-        writer = FakeWriter()
-
-        await daemon.handle_search_request({"request_id": "web-2", "query": "python"}, writer)
-
-        result = writer.events[0]["data"]
-        assert result["status"] == "error"
-        assert result["source"] == "none"
-        assert result["error"] == "network down"
-        assert result["results"] == []
-
-    @pytest.mark.asyncio
-    async def test_only_explicit_mock_mode_labels_results_as_mock(self):
-        writer = FakeWriter()
-
-        await WebSearchDaemon(is_mock=True).handle_search_request({"request_id": "web-3", "query": "python"}, writer)
-
-        assert writer.events[0]["data"]["source"] == "mock"

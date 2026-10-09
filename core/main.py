@@ -107,7 +107,6 @@ class BrainstemWatchdog:
                 "path": os.path.join(project_root, "memoria", "lancedb_manager.py"),
                 "args": get_args("lancedb", "lancedb_manager"),
             },
-            "hipocampo": {"path": os.path.join(project_root, "memoria", "hipocampo.py"), "args": []},
             "vision": {
                 "path": os.path.join(project_root, "sentidos", "vision_parietal.py"),
                 "args": get_args("vision", "vision_parietal"),
@@ -127,10 +126,6 @@ class BrainstemWatchdog:
             },
             "periferico": {"path": os.path.join(project_root, "sentidos", "sistema_periferico.py"), "args": []},
             "intriga": {"path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"), "args": []},
-            "web_search": {
-                "path": os.path.join(project_root, "cognitivo", "web_search.py"),
-                "args": get_args("web_search", "web_search"),
-            },
             "habla": {
                 "path": os.path.join(project_root, "sentidos", "habla_parietal.py"),
                 "args": get_args("habla", "habla_parietal"),

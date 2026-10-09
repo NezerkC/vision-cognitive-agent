@@ -20,13 +20,11 @@ from cognitivo.ejecutor_izquierdo import EjecutorIzquierdo
 # Service Imports
 from cognitivo.llm_router import LLMRouter
 from cognitivo.protocolo_intriga import ProtocoloIntriga
-from cognitivo.web_search import WebSearchDaemon
 from core.adapters.event_bus_inmemory import AsyncInMemoryEventBus
 from core.adapters.event_bus_tcp_bridge import TCPEventBusBridge
 from core.amigdala import Amigdala
 from core.arranque import is_mock, load_modos_mock
 from daemons.pineal_daemon import PinealDaemon
-from memoria.hipocampo import Hipocampo
 from memoria.lancedb_manager import LanceDBManager
 from sentidos.habla_parietal import HablaParietal
 from sentidos.imaginacion_occipital import ImaginacionOccipital
@@ -139,13 +137,11 @@ class BrainstemOrchestrator:
         return [
             ("Router Frontal", lambda: LLMRouter(port=port).run()),
             ("LanceDB Daemon", lambda: lancedb_mgr.run()),
-            ("Hipocampo", lambda: Hipocampo(port=port).run()),
             ("Visión Parietal", lambda: VisionParietal(port=port, force_mock=mock("vision_parietal")).run()),
             ("Oído Parietal", lambda: OidoParietal(port=port, force_mock=mock("oido_parietal")).run()),
             ("Habla Parietal", lambda: HablaParietal(port=port, force_mock=mock("habla_parietal")).run()),
             ("Contexto Derecho", lambda: ContextoDerecho(port=port).run()),
             ("Protocolo Intriga", lambda: ProtocoloIntriga(port=port).run()),
-            ("Web Search", lambda: WebSearchDaemon(port=port, is_mock=mock("web_search")).run()),
             ("Ejecutor Izquierdo", lambda: EjecutorIzquierdo(port=port, is_mock=mock("ejecutor_izquierdo")).run()),
             (
                 "Imaginación Occipital",

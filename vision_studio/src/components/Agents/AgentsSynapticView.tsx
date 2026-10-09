@@ -50,7 +50,7 @@ const INITIAL_CARRILES: ScriptCarril[] = [
   {
     id: 'carril-web',
     name: 'Carril Percepción Web',
-    scriptPath: 'cognitivo/web_search.py',
+    scriptPath: 'cognitivo/skills/websearch_tool.py',
     sourceLobe: 'frontal',
     targetLobe: 'sentidos',
     status: 'pulsing',
