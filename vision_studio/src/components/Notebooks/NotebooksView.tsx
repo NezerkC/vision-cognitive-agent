@@ -4,6 +4,7 @@ import {
   Send, HelpCircle, FileCheck, Mic, Loader2, AlertCircle, Search, Compass, RefreshCw, Globe
 } from 'lucide-react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { apiErrorMessage, splitChatStream } from '../../lib/notebookApi';
 
 
 interface Source {
@@ -32,6 +33,13 @@ interface Notebook {
   notes_count: number;
   sources: Source[];
   notes: Note[];
+  research?: { status: 'running' | 'done' | 'error'; error: string | null } | null;
+}
+
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  error?: string;
 }
 
 export default function NotebooksView() {
@@ -51,11 +59,12 @@ export default function NotebooksView() {
   const [activeTab, setActiveTab] = useState<'sources' | 'synthesis' | 'chat'>('sources');
   const [isUploading, setIsUploading] = useState(false);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
+  const [synthesisError, setSynthesisError] = useState<string | null>(null);
   const [researchingNotebookIds, setResearchingNotebookIds] = useState<string[]>([]);
 
   // Chat State & Controls
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatStreaming, setIsChatStreaming] = useState(false);
   const [searchWeb, setSearchWeb] = useState(false);
   const [searchMode, setSearchMode] = useState<'simple' | 'profundo'>('simple');
@@ -140,7 +149,7 @@ export default function NotebooksView() {
           count++;
           const currentList = await fetchNotebooks();
           const targetNb = currentList.find(n => n.id === newId);
-          const isDone = (targetNb && targetNb.sources_count > 0 && targetNb.notes_count >= 2) || count >= 10;
+          const isDone = (targetNb && targetNb.research?.status !== 'running') || count >= 10;
           if (isDone) {
             setResearchingNotebookIds(prev => prev.filter(id => id !== newId));
             clearInterval(interval);
@@ -196,6 +205,7 @@ export default function NotebooksView() {
   const handleGenerateSynthesis = async (tipo: string) => {
     if (!activeNotebookId) return;
     setIsSynthesizing(true);
+    setSynthesisError(null);
     const apiKey = settings.apiKeys['openrouter'] || '';
 
     try {
@@ -204,12 +214,15 @@ export default function NotebooksView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tipo, api_key: apiKey })
       });
-      const data = await res.json();
-      if (data.status === 'success') {
+      const data = await res.json().catch(() => null);
+      if (data?.status === 'success') {
         await fetchNotebooks();
+      } else {
+        setSynthesisError(apiErrorMessage(data, `Error ${res.status} al generar la síntesis.`));
       }
     } catch (err) {
       console.error('Error generating synthesis:', err);
+      setSynthesisError('No se pudo conectar con el gateway.');
     } finally {
       setIsSynthesizing(false);
     }
@@ -236,7 +249,7 @@ export default function NotebooksView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: queryText,
-          history: chatMessages,
+          history: chatMessages.filter(m => !m.error),
           api_key: apiKey,
           search_web: isWebSearch,
           search_mode: activeSearchMode,
@@ -245,6 +258,12 @@ export default function NotebooksView() {
         })
       });
 
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        const error = apiErrorMessage(data, `Error ${res.status} del gateway.`);
+        setChatMessages(prev => [...prev, { role: 'assistant', text: '', error }]);
+        return;
+      }
       if (!res.body) throw new Error('No readable stream');
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -257,16 +276,17 @@ export default function NotebooksView() {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         assistantText += chunk;
+        const { answer, error } = splitChatStream(assistantText);
 
         setChatMessages(prev => {
           const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', text: assistantText };
+          updated[updated.length - 1] = { role: 'assistant', text: answer, error: error ?? undefined };
           return updated;
         });
       }
     } catch (err) {
       console.error('Error streaming notebook chat:', err);
-      setChatMessages(prev => [...prev, { role: 'assistant', text: 'Error al conectar con la fuente del cuaderno.' }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', text: '', error: 'Error al conectar con la fuente del cuaderno.' }]);
     } finally {
       setIsChatStreaming(false);
       if (isWebSearch) {
@@ -279,7 +299,7 @@ export default function NotebooksView() {
     return (
       researchingNotebookIds.includes(nb.id) ||
       nb.sources.some(s => s.status === 'processing') ||
-      (nb.title.startsWith('Investigación:') && nb.notes_count < 2)
+      nb.research?.status === 'running'
     );
   };
 
@@ -381,7 +401,7 @@ export default function NotebooksView() {
             return (
               <div 
                 key={nb.id}
-                onClick={() => { setActiveNotebookId(nb.id); setChatMessages([]); }}
+                onClick={() => { setActiveNotebookId(nb.id); setChatMessages([]); setSynthesisError(null); }}
                 className={`group flex items-center justify-between p-2.5 rounded-lg cursor-pointer text-xs transition-colors ${
                   activeNotebookId === nb.id ? 'bg-[#37373d] text-white border-l-2 border-[#7c6ff0]' : 'hover:bg-[#2a2d2e]'
                 }`}
@@ -398,6 +418,8 @@ export default function NotebooksView() {
                   <span className="text-[10px] text-gray-400 flex items-center gap-1">
                     {processing ? (
                       <span className="text-amber-300 font-mono animate-pulse">Investigando...</span>
+                    ) : nb.research?.status === 'error' ? (
+                      <span className="text-red-400">Investigación fallida</span>
                     ) : (
                       <>{nb.sources_count} fuentes · {nb.notes_count} notas</>
                     )}
@@ -490,6 +512,16 @@ export default function NotebooksView() {
                     <div>
                       <span className="font-semibold block">Investigación Autónoma en Curso por IA</span>
                       <span className="text-[10px] text-gray-300 block">El agente está consultando la web, sanitizando el texto extraído e indexándolo en LanceDB. Las fuentes y las notas de síntesis aparecerán aquí automáticamente en unos segundos...</span>
+                    </div>
+                  </div>
+                )}
+
+                {activeNotebook.research?.status === 'error' && (
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-center gap-3 text-xs text-red-300">
+                    <AlertCircle size={24} className="text-red-400 flex-shrink-0" />
+                    <div>
+                      <span className="font-semibold block">La investigación autónoma falló</span>
+                      <span className="text-[10px] text-gray-300 block">{activeNotebook.research.error}</span>
                     </div>
                   </div>
                 )}
@@ -593,6 +625,12 @@ export default function NotebooksView() {
                   </div>
                 )}
 
+                {synthesisError && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-xs text-red-300">
+                    <AlertCircle size={18} className="text-red-400 flex-shrink-0" /> {synthesisError}
+                  </div>
+                )}
+
                 {/* Synthesized Notes List */}
                 <div className="space-y-3 pt-2">
                   {activeNotebook.notes.length === 0 ? (
@@ -641,11 +679,16 @@ export default function NotebooksView() {
                           ? 'bg-[#7c6ff0] text-white rounded-br-none' 
                           : 'bg-[#1e1e1f] text-gray-200 border border-[#3c3c3c] rounded-bl-none font-sans'
                       }`}>
-                        {msg.text || (isChatStreaming && idx === chatMessages.length - 1 ? (
+                        {msg.text || (isChatStreaming && idx === chatMessages.length - 1 && !msg.error ? (
                           <span className="flex items-center gap-1 text-[#a78bfa]">
                             <Loader2 size={12} className="animate-spin" /> Escribiendo respuesta basada en fuentes...
                           </span>
                         ) : '')}
+                        {msg.error && (
+                          <span className={`flex items-center gap-1 text-red-300 ${msg.text ? 'mt-2' : ''}`}>
+                            <AlertCircle size={12} className="flex-shrink-0" /> {msg.error}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))}
