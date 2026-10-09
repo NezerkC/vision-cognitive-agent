@@ -68,7 +68,7 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 
 ## Phase 2: Notebooks (NotebookLM) and RAG agent
 
-- [ ] 2.1 Remove the notebook fakes: raw-chunk chat answer (`cognitivo/cuadernos_manager.py` 527-529), raw-context synthesis note (376-378), deep-report template (453-463), placeholder auto-research source (293-294). An empty notebook returns an error.
+- [x] 2.1 Remove the notebook fakes: raw-chunk chat answer (`cognitivo/cuadernos_manager.py` 527-529), raw-context synthesis note (376-378), deep-report template (453-463), placeholder auto-research source (293-294). An empty notebook returns an error.
 - [ ] 2.2 Route notebook LLM calls through `LLMRouter` (366-367, 513-514).
 - [ ] 2.3 Ingestion: stop running `clean_web_text` on files and keep newlines (36-39, 215). Add DOCX via `python-docx`. Reject unsupported types. Replace chunks when a source is re-uploaded.
 - [ ] 2.4 New source types: URL (fetch and extract the main content), YouTube transcript, pasted text.
@@ -143,6 +143,8 @@ This file is the single source of truth for the work loop. Since 2026-10-06 phas
 - Phase 1 PR (opened early at the user's request; 1.12 and 1.13 land on the same branch): https://github.com/NezerkC/vision-cognitive-agent/pull/3
 
 ### Phase 2
+
+- 2.1 Notebook chat, notes and the deep-search report raise `NotebookLLMError` when the LLM fails instead of returning raw chunks, raw context or a template, and save no note; the deep-search report is now written by the LLM from the search results. A notebook without indexed chunks raises `EmptyNotebookError` before any LLM call (a failed retrieval raises instead of looking empty). A web search or auto-research that finds nothing raises `WebSearchError` instead of adding a placeholder source, and auto-research records `research: running|done|error` in the notebook. The gateway maps these to 404/409/502 (other failures 500); a chat stream that already sent output ends with an RS + JSON error event. Vision Studio shows the errors in the chat, the synthesis tab and the notebook list.
 
 ### Phase 3
 
