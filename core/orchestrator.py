@@ -21,6 +21,7 @@ from cognitivo.ejecutor_izquierdo import EjecutorIzquierdo
 from cognitivo.llm_router import LLMRouter
 from cognitivo.protocolo_intriga import ProtocoloIntriga
 from cognitivo.web_search import WebSearchDaemon
+from core.adapters.comfyui_image_generator import comfyui_from_config
 from core.adapters.event_bus_inmemory import AsyncInMemoryEventBus
 from core.adapters.event_bus_tcp_bridge import TCPEventBusBridge
 from core.amigdala import Amigdala
@@ -149,7 +150,11 @@ class BrainstemOrchestrator:
             ("Ejecutor Izquierdo", lambda: EjecutorIzquierdo(port=port, is_mock=mock("ejecutor_izquierdo")).run()),
             (
                 "Imaginación Occipital",
-                lambda: ImaginacionOccipital(port=port, force_mock=mock("imaginacion_occipital")).run(),
+                lambda: ImaginacionOccipital(
+                    port=port,
+                    generator=None if mock("imaginacion_occipital") else comfyui_from_config(),
+                    force_mock=mock("imaginacion_occipital"),
+                ).run(),
             ),
             ("Pineal Daemon", lambda: PinealDaemon(port=port, is_mock=lancedb_mock).run()),
             ("Sistema Periférico", gateway),

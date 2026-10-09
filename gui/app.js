@@ -344,16 +344,20 @@ function handleBrokerEvent(event) {
         updateVisionPanel(captureTime, cambio);
 
     } else if (topic === "canal.imaginacion.respuesta") {
-        const imagePath = data.image_path || "";
-        addTerminalLog(`🎨 [Occipital] Imagen generada en: ${imagePath}`, "resp-success");
+        if (data.status !== "success") {
+            addTerminalLog(`❌ [Occipital Error]: ${data.error || "No se pudo generar la imagen."}`, "resp-error");
+        } else {
+            const imagePath = data.image_path || "";
+            addTerminalLog(`🎨 [Occipital] Imagen generada en: ${imagePath}`, "resp-success");
 
-        const filename = imagePath.split(/[\\/]/).pop();
-        if (filename) {
-            showOccipitalImage(`http://${HOST}:${API_PORT}/artifacts/${filename}`, data.prompt || "Visualización generada.");
+            const filename = imagePath.split(/[\\/]/).pop();
+            if (filename) {
+                showOccipitalImage(`http://${HOST}:${API_PORT}/artifacts/${filename}`, data.prompt || "Visualización generada.");
+            }
+
+            // Update imaginacion panel
+            updateImaginacionPanel(data.prompt, data.timestamp);
         }
-
-        // Update imaginacion panel
-        updateImaginacionPanel(data.prompt, data.timestamp);
 
     } else if (topic === "canal.sistema.anuncios") {
         const msg = data.mensaje || "";
