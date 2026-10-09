@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,6 +8,15 @@ import pytest
 import cognitivo.cuadernos_manager as cm
 from cognitivo.cuadernos_manager import CuadernosManager
 from memoria.lancedb_manager import BGEM3Embedder
+
+SOURCE_TEXT = b"LanceDB guarda en disco los vectores de Vision OS y responde busquedas por similitud."
+
+
+async def _cuaderno_con_fuente(mgr: CuadernosManager) -> dict:
+    """Notebook with one source, indexed before returning."""
+    nb = mgr.create_cuaderno("Con fuente", "RAG")
+    await mgr.add_fuente(nb["id"], "doc.txt", SOURCE_TEXT, index_in_background=False)
+    return nb
 
 
 @pytest.fixture
@@ -43,17 +53,58 @@ def fake_web_search(monkeypatch):
 
 
 @pytest.fixture
+def failing_web_search(monkeypatch):
+    """Offline WebSearchEngine whose backends all fail, like the real one without network."""
+
+    class FailingSearchEngine:
+        async def buscar(self, query, max_results=5):
+            return SimpleNamespace(status="error", results=[], error="All search backends failed.")
+
+    monkeypatch.setattr("cognitivo.skills.websearch_tool.WebSearchEngine", FailingSearchEngine)
+
+
+@pytest.fixture
 def fake_llm(monkeypatch):
-    """Offline litellm.completion that records the messages of every call."""
+    """Offline litellm.completion that records the messages of every call (streamed or not)."""
     calls = []
 
     def fake_completion(**kwargs):
         calls.append(kwargs["messages"])
+        if kwargs.get("stream"):
+            return [
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=part))])
+                for part in ("Respuesta ", "del modelo")
+            ]
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Síntesis generada"))])
 
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.setattr("litellm.completion", fake_completion)
     return calls
+
+
+@pytest.fixture
+def failing_llm(monkeypatch):
+    """litellm.completion failing like an unreachable provider; records the messages of every call."""
+    calls = []
+
+    def failing_completion(**kwargs):
+        calls.append(kwargs["messages"])
+        raise ConnectionError("proveedor LLM caído")
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setattr("litellm.completion", failing_completion)
+    return calls
+
+
+@pytest.fixture
+def client(cuadernos_mgr, monkeypatch):
+    """Gateway test client using the temporary notebook manager."""
+    from fastapi.testclient import TestClient
+
+    import sentidos.sistema_periferico as gateway
+
+    monkeypatch.setattr(gateway, "_cuadernos_mgr", cuadernos_mgr)
+    return TestClient(gateway.app)
 
 
 def test_create_and_list_cuadernos(cuadernos_mgr):
@@ -95,6 +146,7 @@ async def test_investigar_y_crear_cuaderno(cuadernos_mgr, monkeypatch, fake_web_
     nb = await cuadernos_mgr.investigar_y_crear_cuaderno("Física Cuántica")
     assert nb["id"] is not None
     assert nb["title"] == "Investigación: Física Cuántica"
+    assert cuadernos_mgr.list_cuadernos()[0]["research"]["status"] == "running"
 
     # Now run original research method explicitly
     await original_research(nb["id"], "Física Cuántica")
@@ -103,6 +155,23 @@ async def test_investigar_y_crear_cuaderno(cuadernos_mgr, monkeypatch, fake_web_
     assert len(notebooks[0]["sources"]) == 1
     assert notebooks[0]["sources"][0]["status"] == "ready"
     assert len(notebooks[0]["notes"]) == 2
+    assert notebooks[0]["research"] == {"status": "done", "error": None}
+
+
+@pytest.mark.asyncio
+async def test_auto_research_without_web_results_records_error_instead_of_placeholder(
+    cuadernos_mgr, failing_web_search, fake_llm
+):
+    nb = cuadernos_mgr.create_cuaderno("Investigación: Nada", "Auto")
+
+    await cuadernos_mgr._run_auto_research(nb["id"], "Nada")
+
+    stored = cuadernos_mgr.list_cuadernos()[0]
+    assert stored["sources"] == []
+    assert stored["notes"] == []
+    assert stored["research"]["status"] == "error"
+    assert "All search backends failed" in stored["research"]["error"]
+    assert fake_llm == []
 
 
 @pytest.mark.asyncio
@@ -127,12 +196,12 @@ async def test_auto_research_synthesizes_after_source_is_indexed(cuadernos_mgr, 
 
 @pytest.mark.asyncio
 async def test_generar_sintesis_keeps_metadata_written_during_llm_call(cuadernos_mgr, monkeypatch):
-    nb = cuadernos_mgr.create_cuaderno("Cuaderno Concurrente", "Prueba")
+    nb = await _cuaderno_con_fuente(cuadernos_mgr)
 
     def completion_while_indexing_finishes(**kwargs):
         # Background indexing persists its metadata while the LLM call is in flight.
         metadata = cuadernos_mgr._load_metadata()
-        metadata[nb["id"]]["sources"].append({"id": "src1", "filename": "doc.txt", "status": "ready", "chunks": 1})
+        metadata[nb["id"]]["sources"].append({"id": "src1", "filename": "doc2.txt", "status": "ready", "chunks": 1})
         cuadernos_mgr._save_metadata(metadata)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Resumen"))])
 
@@ -142,8 +211,29 @@ async def test_generar_sintesis_keeps_metadata_written_during_llm_call(cuadernos
     await cuadernos_mgr.generar_sintesis(nb["id"], "resumen")
 
     stored = cuadernos_mgr.list_cuadernos()[0]
-    assert [src["id"] for src in stored["sources"]] == ["src1"]
+    assert [src["filename"] for src in stored["sources"]] == ["doc.txt", "doc2.txt"]
     assert len(stored["notes"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_generar_sintesis_raises_when_llm_fails_and_saves_no_note(cuadernos_mgr, failing_llm):
+    nb = await _cuaderno_con_fuente(cuadernos_mgr)
+
+    with pytest.raises(cm.NotebookLLMError, match="proveedor LLM caído"):
+        await cuadernos_mgr.generar_sintesis(nb["id"], "resumen")
+
+    assert cuadernos_mgr.list_cuadernos()[0]["notes"] == []
+
+
+@pytest.mark.asyncio
+async def test_generar_sintesis_on_empty_notebook_raises_without_calling_llm(cuadernos_mgr, fake_llm):
+    nb = cuadernos_mgr.create_cuaderno("Vacío", "Sin fuentes")
+
+    with pytest.raises(cm.EmptyNotebookError):
+        await cuadernos_mgr.generar_sintesis(nb["id"], "resumen")
+
+    assert fake_llm == []
+    assert cuadernos_mgr.list_cuadernos()[0]["notes"] == []
 
 
 def test_delete_cuaderno(cuadernos_mgr):
@@ -156,7 +246,7 @@ def test_delete_cuaderno(cuadernos_mgr):
 
 
 @pytest.mark.asyncio
-async def test_chat_cuaderno_stream_params(cuadernos_mgr, monkeypatch):
+async def test_chat_cuaderno_stream_params(cuadernos_mgr, monkeypatch, fake_llm):
     nb = cuadernos_mgr.create_cuaderno("Cuaderno Params", "Prueba de parámetros")
 
     # Mock WebSearchEngine
@@ -189,10 +279,48 @@ async def test_chat_cuaderno_stream_params(cuadernos_mgr, monkeypatch):
 
     full_response = "".join(chunks)
     assert "[🌐 Buscando en la web" in full_response
+    assert full_response.endswith("Respuesta del modelo")
+    # The answer is grounded on the source the web search just indexed.
+    assert "Python 3.13 incluye un nuevo JIT compiler." in fake_llm[0][0]["content"]
 
 
 @pytest.mark.asyncio
-async def test_chat_cuaderno_stream_busqueda_profunda(cuadernos_mgr, monkeypatch):
+async def test_chat_raises_when_llm_fails_instead_of_answering_with_raw_chunks(cuadernos_mgr, failing_llm):
+    nb = await _cuaderno_con_fuente(cuadernos_mgr)
+    received = []
+
+    with pytest.raises(cm.NotebookLLMError, match="proveedor LLM caído"):
+        async for chunk in cuadernos_mgr.chat_cuaderno_stream(nb["id"], "¿Dónde guarda los vectores?"):
+            received.append(chunk)
+
+    assert received == []
+
+
+@pytest.mark.asyncio
+async def test_chat_on_empty_notebook_raises_without_calling_llm(cuadernos_mgr, fake_llm):
+    nb = cuadernos_mgr.create_cuaderno("Vacío", "Sin fuentes")
+
+    with pytest.raises(cm.EmptyNotebookError):
+        async for _ in cuadernos_mgr.chat_cuaderno_stream(nb["id"], "hola"):
+            pass
+
+    assert fake_llm == []
+
+
+@pytest.mark.asyncio
+async def test_chat_reports_failed_web_search(cuadernos_mgr, failing_web_search, fake_llm):
+    nb = await _cuaderno_con_fuente(cuadernos_mgr)
+
+    with pytest.raises(cm.WebSearchError, match="All search backends failed"):
+        async for _ in cuadernos_mgr.chat_cuaderno_stream(nb["id"], "@web novedades", search_web=True):
+            pass
+
+    assert fake_llm == []
+    assert len(cuadernos_mgr.list_cuadernos()[0]["sources"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_cuaderno_stream_busqueda_profunda(cuadernos_mgr, monkeypatch, fake_llm):
     nb = cuadernos_mgr.create_cuaderno("Cuaderno Profundo", "Prueba de búsqueda profunda")
 
     # Mock WebSearchEngine con 22 fuentes
@@ -226,14 +354,31 @@ async def test_chat_cuaderno_stream_busqueda_profunda(cuadernos_mgr, monkeypatch
     full_response = "".join(chunks)
     assert "modo Profunda (>20 fuentes)" in full_response
 
-    # Verificar que se generó la nota con el informe de citas
-    notebooks = cuadernos_mgr.list_cuadernos()
-    active_nb = notebooks[0]
+    # The report note is written by the LLM from every search result, not filled into a template.
+    active_nb = cuadernos_mgr.list_cuadernos()[0]
     assert len(active_nb["notes"]) == 1
     report_note = active_nb["notes"][0]
     assert report_note["type"] == "informe_profundo"
-    assert "Informe de Investigación Profunda" in report_note["content"]
-    assert "Total de Fuentes Consultadas**: 22" in report_note["content"]
+    assert report_note["content"] == "Síntesis generada"
+    report_prompt = fake_llm[0][0]["content"]
+    assert "Fuente Novedosa 1" in report_prompt
+    assert "Fuente Novedosa 22" in report_prompt
+
+
+@pytest.mark.asyncio
+async def test_deep_search_saves_no_report_when_llm_fails(cuadernos_mgr, fake_web_search, failing_llm):
+    nb = cuadernos_mgr.create_cuaderno("Profundo", "Sin LLM")
+
+    with pytest.raises(cm.NotebookLLMError):
+        async for _ in cuadernos_mgr.chat_cuaderno_stream(
+            nb["id"], "entrelazamiento", search_web=True, max_web_results=25
+        ):
+            pass
+
+    stored = cuadernos_mgr.list_cuadernos()[0]
+    assert stored["notes"] == []
+    # The web findings are real, so the indexed source stays.
+    assert [src["status"] for src in stored["sources"]] == ["ready"]
 
 
 @pytest.mark.asyncio
@@ -244,6 +389,18 @@ async def test_query_context_ignores_quote_injection_in_notebook_id(cuadernos_mg
     )
 
     assert cuadernos_mgr.query_cuaderno_context("nope' OR '1'='1", "contenido confidencial") == []
+
+
+def test_query_context_raises_when_search_fails(cuadernos_mgr, monkeypatch):
+    # A failed search must not look like an empty notebook.
+    class BrokenTable:
+        def search(self, *args, **kwargs):
+            raise RuntimeError("tabla LanceDB corrupta")
+
+    monkeypatch.setattr(cuadernos_mgr.db, "open_table", lambda name: BrokenTable())
+
+    with pytest.raises(RuntimeError, match="tabla LanceDB corrupta"):
+        cuadernos_mgr.query_cuaderno_context("abc12345", "consulta")
 
 
 @pytest.mark.asyncio
@@ -319,3 +476,70 @@ def test_upload_endpoint_rejects_oversized_source(cuadernos_mgr, monkeypatch, tm
     assert resp.status_code == 413
     assert cuadernos_mgr.list_cuadernos()[0]["sources"] == []
     assert not (tmp_path / "sources" / nb["id"]).exists()
+
+
+def test_chat_endpoint_returns_409_for_empty_notebook(cuadernos_mgr, client, fake_llm):
+    nb = cuadernos_mgr.create_cuaderno("Vacío", "Sin fuentes")
+
+    resp = client.post(f"/api/cuadernos/{nb['id']}/chat", json={"query": "hola"})
+
+    assert resp.status_code == 409
+    assert resp.json()["status"] == "error"
+    assert fake_llm == []
+
+
+def test_chat_endpoint_returns_502_when_llm_fails(cuadernos_mgr, client, failing_llm):
+    nb = asyncio.run(_cuaderno_con_fuente(cuadernos_mgr))
+
+    resp = client.post(f"/api/cuadernos/{nb['id']}/chat", json={"query": "¿Dónde guarda los vectores?"})
+
+    assert resp.status_code == 502
+    assert resp.json()["status"] == "error"
+    assert "proveedor LLM caído" in resp.json()["message"]
+
+
+def test_chat_endpoint_ends_a_started_stream_with_an_error_event(cuadernos_mgr, client, fake_web_search, failing_llm):
+    from sentidos.sistema_periferico import CHAT_STREAM_ERROR_MARKER
+
+    nb = cuadernos_mgr.create_cuaderno("Web", "Falla a mitad")
+
+    resp = client.post(f"/api/cuadernos/{nb['id']}/chat", json={"query": "entrelazamiento", "search_web": True})
+
+    assert resp.status_code == 200
+    answer, marker, event = resp.text.partition(CHAT_STREAM_ERROR_MARKER)
+    assert marker == CHAT_STREAM_ERROR_MARKER
+    assert answer.startswith("[🌐 Buscando en la web")
+    assert "Hallazgo" not in answer
+    error = json.loads(event)
+    assert error["status"] == "error"
+    assert "proveedor LLM caído" in error["message"]
+
+
+def test_chat_endpoint_ends_stream_with_error_when_web_search_finds_nothing(
+    cuadernos_mgr, client, failing_web_search, fake_llm
+):
+    from sentidos.sistema_periferico import CHAT_STREAM_ERROR_MARKER
+
+    nb = asyncio.run(_cuaderno_con_fuente(cuadernos_mgr))
+
+    resp = client.post(f"/api/cuadernos/{nb['id']}/chat", json={"query": "@web novedades"})
+
+    assert resp.status_code == 200
+    answer, marker, event = resp.text.partition(CHAT_STREAM_ERROR_MARKER)
+    assert marker == CHAT_STREAM_ERROR_MARKER
+    assert answer.startswith("[🌐 Buscando en la web")
+    assert "All search backends failed" in json.loads(event)["message"]
+    assert fake_llm == []
+    assert len(cuadernos_mgr.list_cuadernos()[0]["sources"]) == 1
+
+
+def test_sintesis_endpoint_maps_notebook_errors_to_http_status(cuadernos_mgr, client, failing_llm):
+    empty = cuadernos_mgr.create_cuaderno("Vacío", "Sin fuentes")
+    with_source = asyncio.run(_cuaderno_con_fuente(cuadernos_mgr))
+
+    assert client.post("/api/cuadernos/no-existe/sintesis", json={"tipo": "resumen"}).status_code == 404
+    assert client.post(f"/api/cuadernos/{empty['id']}/sintesis", json={"tipo": "resumen"}).status_code == 409
+    resp = client.post(f"/api/cuadernos/{with_source['id']}/sintesis", json={"tipo": "resumen"})
+    assert resp.status_code == 502
+    assert "proveedor LLM caído" in resp.json()["message"]
+    assert all(nb["notes"] == [] for nb in cuadernos_mgr.list_cuadernos())

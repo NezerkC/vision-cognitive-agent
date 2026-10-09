@@ -19,7 +19,13 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 
-from cognitivo.cuadernos_manager import CuadernosManager, NotebookNotFoundError
+from cognitivo.cuadernos_manager import (
+    CuadernosManager,
+    EmptyNotebookError,
+    NotebookLLMError,
+    NotebookNotFoundError,
+    WebSearchError,
+)
 from cognitivo.modelo_vision import HARDWARE_CONFIG_PATH, resolve_vision_model
 from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
 from sentidos.limites_subida import read_upload_limited
@@ -1291,6 +1297,27 @@ async def get_cuadernos_mgr() -> CuadernosManager:
     return await asyncio.to_thread(_create_cuadernos_mgr)
 
 
+# HTTP status of the notebook errors a client can act on; any other failure is a 500.
+_CUADERNO_ERROR_STATUS = (
+    (NotebookNotFoundError, 404),
+    (EmptyNotebookError, 409),
+    (NotebookLLMError, 502),
+    (WebSearchError, 502),
+)
+
+# A chat stream that fails after sending output ends with this separator and a JSON error object (RFC 7464 style).
+CHAT_STREAM_ERROR_MARKER = "\x1e"
+
+
+def _cuaderno_error_response(error: Exception) -> JSONResponse:
+    status_code = next((code for kind, code in _CUADERNO_ERROR_STATUS if isinstance(error, kind)), 500)
+    return JSONResponse(status_code=status_code, content={"status": "error", "message": str(error)})
+
+
+def _chat_stream_error_event(error: Exception) -> str:
+    return CHAT_STREAM_ERROR_MARKER + json.dumps({"status": "error", "message": str(error)}, ensure_ascii=False) + "\n"
+
+
 @app.get("/api/cuadernos")
 async def api_list_cuadernos():
     return {"status": "success", "cuadernos": (await get_cuadernos_mgr()).list_cuadernos()}
@@ -1348,7 +1375,8 @@ async def api_generar_sintesis_cuaderno(notebook_id: str, request: Request):
         nota = await (await get_cuadernos_mgr()).generar_sintesis(notebook_id, tipo, provider_key)
         return {"status": "success", "nota": nota}
     except Exception as e:
-        return JSONResponse(status_code=400, content={"status": "error", "message": str(e)})
+        logger.error(f"Síntesis del cuaderno {notebook_id} falló: {e}")
+        return _cuaderno_error_response(e)
 
 
 @app.post("/api/cuadernos/{notebook_id}/chat")
@@ -1370,17 +1398,32 @@ async def api_chat_cuaderno(notebook_id: str, request: Request):
         max_web_results = max(max_web_results, 25)
     response_style = body.get("response_style", "conciso")
 
+    stream = mgr.chat_cuaderno_stream(
+        notebook_id=notebook_id,
+        query=query,
+        history=history,
+        search_web=search_web,
+        max_web_results=max_web_results,
+        response_style=response_style,
+        provider_api_key=provider_key,
+    )
+    # A failure before any output (empty notebook, LLM unavailable) still gets a real HTTP status.
+    try:
+        first_chunk = await anext(stream)
+    except StopAsyncIteration:
+        first_chunk = ""
+    except Exception as e:
+        logger.error(f"Chat del cuaderno {notebook_id} falló: {e}")
+        return _cuaderno_error_response(e)
+
     async def stream_generator():
-        async for chunk in mgr.chat_cuaderno_stream(
-            notebook_id=notebook_id,
-            query=query,
-            history=history,
-            search_web=search_web,
-            max_web_results=max_web_results,
-            response_style=response_style,
-            provider_api_key=provider_key,
-        ):
-            yield chunk
+        yield first_chunk
+        try:
+            async for chunk in stream:
+                yield chunk
+        except Exception as e:
+            logger.error(f"Chat del cuaderno {notebook_id} falló durante la respuesta: {e}")
+            yield _chat_stream_error_event(e)
 
     return StreamingResponse(stream_generator(), media_type="text/plain")
 

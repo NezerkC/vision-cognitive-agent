@@ -44,6 +44,24 @@ class NotebookNotFoundError(ValueError):
     """The notebook id does not name an existing notebook."""
 
 
+class EmptyNotebookError(ValueError):
+    """The notebook has no indexed content to answer from or summarize."""
+
+
+class NotebookLLMError(RuntimeError):
+    """The language model failed to write a notebook answer, note or report."""
+
+
+class WebSearchError(RuntimeError):
+    """A web search requested for a notebook found nothing usable."""
+
+
+EMPTY_NOTEBOOK_MESSAGE = (
+    "El cuaderno no tiene fuentes indexadas. Agregá una fuente (o esperá a que termine de procesarse) "
+    "antes de preguntar o generar notas."
+)
+
+
 def _notebook_sources_dir(notebook_id: str, metadata: dict[str, dict]) -> str:
     """Source directory of an existing notebook. Never resolves outside SOURCES_DIR."""
     if notebook_id not in metadata:
@@ -116,6 +134,7 @@ class CuadernosManager:
                     "notes_count": len(info.get("notes", [])),
                     "sources": info.get("sources", []),
                     "notes": info.get("notes", []),
+                    "research": info.get("research"),
                 }
             )
         return sorted(result, key=lambda x: x["created_at"], reverse=True)
@@ -280,11 +299,21 @@ class CuadernosManager:
         description = f"Cuaderno generado automáticamente por el Agente sobre '{tema}'"
         notebook = self.create_cuaderno(title, description)
         notebook_id = notebook["id"]
+        notebook["research"] = self._set_research(notebook_id, "running")
 
         # Run auto research background task
         asyncio.create_task(self._run_auto_research(notebook_id, tema, provider_api_key))
 
         return notebook
+
+    def _set_research(self, notebook_id: str, status: str, error: str | None = None) -> dict:
+        """Persist the auto-research state ('running', 'done' or 'error') so clients can show progress and failures."""
+        research = {"status": status, "error": error}
+        metadata = self._load_metadata()
+        if notebook_id in metadata:
+            metadata[notebook_id]["research"] = research
+            self._save_metadata(metadata)
+        return research
 
     async def _run_auto_research(self, notebook_id: str, tema: str, provider_api_key: str | None = None):
         try:
@@ -297,6 +326,7 @@ class CuadernosManager:
             logger.info(f"Iniciando investigación autónoma sobre '{tema}' para cuaderno {notebook_id}...")
 
             gathered_texts = []
+            last_error = "sin resultados"
             for q in queries:
                 try:
                     resp = await search_engine.buscar(q, max_results=4)
@@ -305,11 +335,14 @@ class CuadernosManager:
                             snippet = clean_web_text(item.snippet)
                             if snippet:
                                 gathered_texts.append(f"### Fuente: {item.title}\nURL: {item.url}\n\n{snippet}")
+                    else:
+                        last_error = resp.error or last_error
                 except Exception as err:
                     logger.warning(f"Error en búsqueda web '{q}': {err}")
+                    last_error = str(err)
 
             if not gathered_texts:
-                gathered_texts.append(f"### Investigación: {tema}\n\nNo se encontraron hallazgos web estructurados.")
+                raise WebSearchError(f"La búsqueda web sobre '{tema}' no devolvió resultados ({last_error}).")
 
             combined_content = "\n\n---\n\n".join(gathered_texts)
             safe_filename = f"Investigacion_Web_{re.sub(r'[^a-zA-Z0-9_]', '_', tema)[:25]}.txt"
@@ -326,41 +359,85 @@ class CuadernosManager:
             await self.generar_sintesis(notebook_id, "resumen", provider_api_key)
             await self.generar_sintesis(notebook_id, "guia_estudio", provider_api_key)
 
+            self._set_research(notebook_id, "done")
             logger.info(f"Investigación autónoma completada exitosamente para cuaderno {notebook_id}.")
 
         except Exception as e:
             logger.error(f"Error en auto-investigación para cuaderno {notebook_id}: {e}")
+            self._set_research(notebook_id, "error", str(e))
 
     def query_cuaderno_context(self, notebook_id: str, query: str, top_k: int = 5) -> list[dict]:
+        """Notebook chunks nearest to the query. A failed search raises: it is not an empty notebook."""
         try:
             self.table = self.db.open_table("cuadernos_chunks")
         except Exception:
             pass
         query_vec = self.embedder.embed_query(query)
+        return (
+            self.table.search(query_vec)
+            .where(f"notebook_id = {sql_string_literal(notebook_id)}")
+            .limit(top_k)
+            .to_list()
+        )
+
+    async def _completar(self, messages: list[dict], provider_api_key: str | None) -> str:
+        """One LLM completion. A failure raises NotebookLLMError; there is no fallback text."""
+        import litellm
+
+        api_key = provider_api_key or os.environ.get("OPENROUTER_API_KEY")
+        model = "openrouter/google/gemini-1.5-pro" if api_key else "gpt-3.5-turbo"
+        kwargs = {"model": model, "messages": messages, "temperature": 0.3}
+        if api_key:
+            kwargs["api_key"] = api_key
         try:
-            results = (
-                self.table.search(query_vec)
-                .where(f"notebook_id = {sql_string_literal(notebook_id)}")
-                .limit(top_k)
-                .to_list()
-            )
-            return results
+            response = await asyncio.to_thread(litellm.completion, **kwargs)
+            return response.choices[0].message.content
         except Exception as e:
-            logger.error(f"Error realizando búsqueda RAG en cuaderno {notebook_id}: {e}")
-            return []
+            raise NotebookLLMError(f"El modelo de lenguaje no respondió: {e}") from e
+
+    def _guardar_nota(self, notebook_id: str, title: str, tipo: str, content: str) -> dict:
+        note_entry = {
+            "id": str(uuid.uuid4())[:8],
+            "title": title,
+            "type": tipo,
+            "content": content,
+            "created_at": datetime.now().isoformat(),
+        }
+        # Reload: the snapshot taken before the LLM call may be stale (e.g. background indexing saved meanwhile).
+        metadata = self._load_metadata()
+        if notebook_id not in metadata:
+            raise NotebookNotFoundError(f"Cuaderno {notebook_id} no existe.")
+        metadata[notebook_id]["notes"].append(note_entry)
+        self._save_metadata(metadata)
+        return note_entry
+
+    async def _escribir_informe(
+        self, notebook_id: str, consulta: str, hallazgos: str, provider_api_key: str | None
+    ) -> dict:
+        """Deep-search report note, written by the LLM from the web findings."""
+        system_prompt = (
+            "Eres el Investigador de Visión OS. Redacta un informe de investigación profunda basándote ÚNICAMENTE "
+            "en los siguientes resultados de búsqueda web. Cita cada dato con su fuente usando el formato "
+            "[Fuente N] y termina con la lista de las fuentes citadas (título y URL).\n\n"
+            f"--- RESULTADOS WEB ---\n{hallazgos}\n----------------------\n\n"
+            "Formatea tu respuesta utilizando Markdown impecable con encabezados y viñetas."
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Tema del informe: {consulta}"},
+        ]
+        informe = await self._completar(messages, provider_api_key)
+        return self._guardar_nota(notebook_id, f"Informe: {consulta[:30]}", "informe_profundo", informe)
 
     async def generar_sintesis(
         self, notebook_id: str, tipo_sintesis: str = "resumen", provider_api_key: str | None = None
     ) -> dict:
-        metadata = self._load_metadata()
-        if notebook_id not in metadata:
-            raise ValueError(f"Cuaderno {notebook_id} no existe.")
+        self.ensure_cuaderno(notebook_id)
 
         chunks = self.query_cuaderno_context(notebook_id, "resumen general e ideas principales", top_k=15)
+        if not chunks:
+            raise EmptyNotebookError(EMPTY_NOTEBOOK_MESSAGE)
         context_text = "\n\n".join([f"[Fuente: {c['source_name']}]\n{c['text']}" for c in chunks])
-
-        if not context_text.strip():
-            context_text = "No se encontraron fuentes o el contenido indexado está vacío."
 
         prompts = {
             "resumen": "Genera un Resumen Ejecutivo claro y estructurado con los puntos clave del cuaderno.",
@@ -377,39 +454,9 @@ class CuadernosManager:
             "Formatea tu respuesta utilizando Markdown impecable con encabezados y viñetas."
         )
 
-        import litellm
-
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
-
-        api_key = provider_api_key or os.environ.get("OPENROUTER_API_KEY")
-        model = "openrouter/google/gemini-1.5-pro" if api_key else "gpt-3.5-turbo"
-
-        try:
-            kwargs = {"model": model, "messages": messages, "temperature": 0.3}
-            if api_key:
-                kwargs["api_key"] = api_key
-
-            response = await asyncio.to_thread(litellm.completion, **kwargs)
-            generated_text = response.choices[0].message.content
-        except Exception as e:
-            logger.warning(f"Error llamando a LLM para síntesis: {e}. Generando síntesis sintética local.")
-            generated_text = f"### Síntesis: {tipo_sintesis.upper()}\n\n{context_text[:1000]}\n\n*(Nota: Configura tu OpenRouter API Key para generar resúmenes LLM completos)*"
-
-        note_entry = {
-            "id": str(uuid.uuid4())[:8],
-            "title": f"Síntesis: {tipo_sintesis.capitalize()}",
-            "type": tipo_sintesis,
-            "content": generated_text,
-            "created_at": datetime.now().isoformat(),
-        }
-
-        # Reload: the snapshot taken before the LLM call may be stale (e.g. background indexing saved meanwhile).
-        metadata = self._load_metadata()
-        if notebook_id not in metadata:
-            raise ValueError(f"Cuaderno {notebook_id} no existe.")
-        metadata[notebook_id]["notes"].append(note_entry)
-        self._save_metadata(metadata)
-        return note_entry
+        generated_text = await self._completar(messages, provider_api_key)
+        return self._guardar_nota(notebook_id, f"Síntesis: {tipo_sintesis.capitalize()}", tipo_sintesis, generated_text)
 
     async def chat_cuaderno_stream(
         self,
@@ -422,84 +469,41 @@ class CuadernosManager:
         provider_api_key: str | None = None,
     ) -> AsyncGenerator[str, None]:
         # Validate before the first yield so an unknown or crafted id never reaches the filesystem.
-        n_sources_dir = _notebook_sources_dir(notebook_id, self._load_metadata())
+        self.ensure_cuaderno(notebook_id)
         clean_query = query.replace("@web", "").strip() if query.strip().startswith("@web") else query.strip()
 
         if search_web or query.strip().startswith("@web") or max_web_results > 10:
             mode_label = "Profunda (>20 fuentes)" if max_web_results > 10 else f"Simple ({max_web_results} fuentes)"
             yield f"[🌐 Buscando en la web en modo {mode_label} e indexando fuentes en el cuaderno...]\n\n"
-            try:
-                from cognitivo.skills.websearch_tool import WebSearchEngine
+            from cognitivo.skills.websearch_tool import WebSearchEngine
 
-                search_engine = WebSearchEngine()
-                resp = await search_engine.buscar(clean_query, max_results=max_web_results)
-                gathered_texts = []
-                if resp.status == "success" and resp.results:
-                    for i, item in enumerate(resp.results):
-                        snippet = clean_web_text(item.snippet)
-                        if snippet:
-                            gathered_texts.append(f"### Fuente [{i + 1}]: {item.title}\nURL: {item.url}\n\n{snippet}")
+            resp = await WebSearchEngine().buscar(clean_query, max_results=max_web_results)
+            gathered_texts = []
+            if resp.status == "success" and resp.results:
+                for i, item in enumerate(resp.results):
+                    snippet = clean_web_text(item.snippet)
+                    if snippet:
+                        gathered_texts.append(f"### Fuente [{i + 1}]: {item.title}\nURL: {item.url}\n\n{snippet}")
+            if not gathered_texts:
+                reason = resp.error or "sin resultados"
+                raise WebSearchError(f"La búsqueda web sobre '{clean_query}' no devolvió resultados ({reason}).")
 
-                if gathered_texts:
-                    combined_content = "\n\n---\n\n".join(gathered_texts)
-                    safe_filename = f"Investigacion_Web_{re.sub(r'[^a-zA-Z0-9_]', '_', clean_query)[:25]}.txt"
-                    os.makedirs(n_sources_dir, exist_ok=True)
-                    file_path = os.path.join(n_sources_dir, safe_filename)
-                    with open(file_path, "wb") as f:
-                        f.write(combined_content.encode("utf-8"))
-
-                    source_id = str(uuid.uuid4())[:8]
-                    source_entry = {
-                        "id": source_id,
-                        "filename": safe_filename,
-                        "description": f"Búsqueda web ({mode_label}) para query: {clean_query[:30]}",
-                        "added_at": datetime.now().isoformat(),
-                        "status": "ready",
-                        "chunks": 0,
-                    }
-                    metadata = self._load_metadata()
-                    if notebook_id in metadata:
-                        metadata[notebook_id]["sources"].append(source_entry)
-
-                        # Si es búsqueda profunda o mayor a 10 fuentes, generar una nota con el informe detallado de citas:
-                        if max_web_results > 10 and resp.results:
-                            citations_formatted = "\n".join(
-                                [
-                                    f"{idx + 1}. **[{item.title}]({item.url})**\n   - *Extracto*: {clean_web_text(item.snippet)[:200]}..."
-                                    for idx, item in enumerate(resp.results)
-                                ]
-                            )
-                            report_content = (
-                                f"# 📋 Informe de Investigación Profunda\n\n"
-                                f"**Tema**: {clean_query}\n"
-                                f"**Fecha**: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-                                f"**Total de Fuentes Consultadas**: {len(resp.results)}\n\n"
-                                f"## Resumen General\n"
-                                f"Este informe compila {len(resp.results)} fuentes encontradas en la búsqueda profunda respecto a '{clean_query}', "
-                                f"relacionando foros, sitios web, documentaciones y recursos multimedia.\n\n"
-                                f"## Citas Directas y Enlaces de Fuentes\n\n"
-                                f"{citations_formatted}\n"
-                            )
-                            report_note = {
-                                "id": str(uuid.uuid4())[:8],
-                                "title": f"Informe Citas: {clean_query[:30]}",
-                                "type": "informe_profundo",
-                                "content": report_content,
-                                "created_at": datetime.now().isoformat(),
-                            }
-                            metadata[notebook_id]["notes"].append(report_note)
-
-                        self._save_metadata(metadata)
-
-                    await self._process_and_index_source(notebook_id, source_id, safe_filename, file_path)
-            except Exception as err:
-                logger.error(f"Error realizando búsqueda web en chat cuaderno: {err}")
+            combined_content = "\n\n---\n\n".join(gathered_texts)
+            safe_filename = f"Investigacion_Web_{re.sub(r'[^a-zA-Z0-9_]', '_', clean_query)[:25]}.txt"
+            await self.add_fuente(
+                notebook_id,
+                safe_filename,
+                combined_content.encode("utf-8"),
+                description=f"Búsqueda web ({mode_label}) para query: {clean_query[:30]}",
+                index_in_background=False,
+            )
+            if max_web_results > 10:
+                await self._escribir_informe(notebook_id, clean_query, combined_content, provider_api_key)
 
         fetch_top_k = 15 if max_web_results > 10 else 6
         chunks = self.query_cuaderno_context(notebook_id, clean_query, top_k=fetch_top_k)
         if not chunks:
-            yield "No encuentro información sobre este tema en las fuentes de este cuaderno."
-            return
+            raise EmptyNotebookError(EMPTY_NOTEBOOK_MESSAGE)
 
         context_blocks = "\n\n".join([f"--- [Fuente: {c['source_name']}] ---\n{c['text']}" for c in chunks])
 
@@ -544,5 +548,4 @@ class CuadernosManager:
                     yield delta
                     await asyncio.sleep(0.01)
         except Exception as e:
-            logger.error(f"Error en streaming de chat cuaderno: {e}")
-            yield f"Basado en las fuentes recuperadas:\n\n{chunks[0]['text']}\n\n[Fuente: {chunks[0]['source_name']}]"
+            raise NotebookLLMError(f"El modelo de lenguaje no respondió: {e}") from e
