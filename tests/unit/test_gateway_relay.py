@@ -64,3 +64,48 @@ def test_external_webhook_is_relayed_to_the_broker(published):
     assert resp.status_code == 200
     assert resp.json()["status"] == "forwarded"
     assert published == [("canal.sensorial.periferico", payload)]
+
+
+def test_pc_action_request_is_queued_for_human_approval(published):
+    resp = TestClient(gateway.app).post(
+        "/api/ejecucion/accion", json={"herramienta": "ejecutar_script", "parametros": ["dir"]}
+    )
+
+    assert resp.status_code == 202
+    request_id = resp.json()["request_id"]
+    assert request_id.startswith("accion-")
+    [(topic, data)] = published
+    assert topic == "canal.ejecucion.accion"
+    assert data["request_id"] == request_id
+    assert data["herramienta"] == "ejecutar_script"
+    assert data["parametros"] == ["dir"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"herramienta": "borrar_todo", "parametros": ["rm -rf /"]},
+        {"herramienta": "ejecutar_script"},
+        {"herramienta": "ejecutar_script", "parametros": []},
+        {"herramienta": "control_ui", "parametros": [1]},
+    ],
+)
+def test_invalid_pc_action_is_rejected_without_reaching_the_broker(published, body):
+    resp = TestClient(gateway.app).post("/api/ejecucion/accion", json=body)
+
+    assert resp.status_code == 400
+    assert published == []
+
+
+def test_pc_action_reports_an_offline_broker_instead_of_pretending_it_was_queued(monkeypatch):
+    async def offline(topic, data):
+        return False
+
+    monkeypatch.setattr(gateway.gateway, "publish_event", offline)
+
+    resp = TestClient(gateway.app).post(
+        "/api/ejecucion/accion", json={"herramienta": "control_ui", "parametros": ["win"]}
+    )
+
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "error"

@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 
 import httpx
 import lancedb
@@ -20,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 
 from cognitivo.cuadernos_manager import CuadernosManager, NotebookNotFoundError
+from cognitivo.ejecutor_izquierdo import ACTION_TOPIC, SUPPORTED_TOOLS
 from cognitivo.modelo_vision import HARDWARE_CONFIG_PATH, resolve_vision_model
 from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
 from sentidos.limites_subida import read_upload_limited
@@ -1143,6 +1145,45 @@ async def upload_sensorial(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Error handling file upload: {e}")
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+
+@app.post("/api/ejecucion/accion")
+async def api_solicitar_accion(request: Request):
+    """
+    Asks the PC executor to run an action. Nothing runs here: the request appears as a ticket on the HUD, and the
+    executor waits for the human's canal.ejecucion.aprobacion before it touches the system.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid JSON body."})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Expected a JSON object."})
+
+    herramienta = body.get("herramienta")
+    parametros = body.get("parametros")
+    if not isinstance(herramienta, str) or herramienta not in SUPPORTED_TOOLS:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": f"Unsupported tool: {herramienta!r}."},
+        )
+    if not isinstance(parametros, list) or not parametros or not all(isinstance(p, str) for p in parametros):
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "parametros must be a non-empty list of strings."},
+        )
+
+    request_id = f"accion-{uuid.uuid4().hex}"
+    queued = await gateway.publish_event(
+        ACTION_TOPIC,
+        {"request_id": request_id, "herramienta": herramienta, "parametros": parametros, "timestamp": time.time()},
+    )
+    if not queued:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "message": "The event broker is offline; nothing was queued."},
+        )
+    return JSONResponse(status_code=202, content={"status": "pending_approval", "request_id": request_id})
 
 
 @app.websocket("/ws")
