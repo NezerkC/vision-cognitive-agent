@@ -156,3 +156,24 @@ class TestAmigdalaMultimodalPreservation:
         assert topic == "canal.seguridad.alerta"
         assert payload["status"] == "BLOCKED"
         assert "ignora tus instrucciones" in payload["reason"]
+
+    async def test_forwarded_request_drops_the_dead_mock_field(self):
+        forwarded = []
+
+        async def mock_publish(topic: str, data: dict):
+            forwarded.append((topic, data))
+
+        await Amigdala().handle_cognitive_input({"request_id": "req-2", "prompt": "hola", "mock": True}, mock_publish)
+
+        [(topic, payload)] = forwarded
+        assert topic == "canal.cognitivo.peticion"
+        assert "mock" not in payload
+
+
+def test_llm_gateway_port_declares_no_mock_parameters():
+    import inspect
+
+    from core.ports.llm_gateway import ILLMGateway
+
+    for method in ("call_model", "generate_json"):
+        assert "mock" not in inspect.signature(getattr(ILLMGateway, method)).parameters

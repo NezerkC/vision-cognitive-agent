@@ -144,7 +144,7 @@ class BrainstemOrchestrator:
             ("Oído Parietal", lambda: OidoParietal(port=port, force_mock=mock("oido_parietal")).run()),
             ("Habla Parietal", lambda: HablaParietal(port=port, force_mock=mock("habla_parietal")).run()),
             ("Contexto Derecho", lambda: ContextoDerecho(port=port).run()),
-            ("Protocolo Intriga", lambda: ProtocoloIntriga(port=port, is_mock=mock("protocolo_intriga")).run()),
+            ("Protocolo Intriga", lambda: ProtocoloIntriga(port=port).run()),
             ("Web Search", lambda: WebSearchDaemon(port=port, is_mock=mock("web_search")).run()),
             ("Ejecutor Izquierdo", lambda: EjecutorIzquierdo(port=port, is_mock=mock("ejecutor_izquierdo")).run()),
             (

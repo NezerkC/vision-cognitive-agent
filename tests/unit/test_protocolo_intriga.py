@@ -43,6 +43,11 @@ FOUND = SearchResponse(
 NOTHING = SearchResponse(status="error", results=[], source="duckduckgo", error="all backends failed")
 
 
+def test_intriga_has_no_mock_flag():
+    assert "is_mock" not in inspect.signature(ProtocoloIntriga).parameters
+    assert not hasattr(ProtocoloIntriga(), "is_mock")
+
+
 @pytest.mark.asyncio
 async def test_anomaly_asks_for_permission_before_researching():
     intriga, writer = ProtocoloIntriga(), FakeWriter()

@@ -721,7 +721,6 @@ async def get_config_arranque():
             "imaginacion_occipital": False,
             "ejecutor_izquierdo": False,
             "lancedb_manager": False,
-            "protocolo_intriga": False,
             "habla_parietal": False,
         }
     }

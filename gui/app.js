@@ -583,8 +583,7 @@ function setupEventListeners() {
                 sendWebSocketMessage("canal.cognitivo.entrada", {
                     "request_id": `manual-${Date.now()}`,
                     "prompt": text,
-                    "esfuerzo_requerido": "esfuerzo_bajo",
-                    "mock": false
+                    "esfuerzo_requerido": "esfuerzo_bajo"
                 });
             }
         });

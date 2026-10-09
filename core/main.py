@@ -126,10 +126,7 @@ class BrainstemWatchdog:
                 "args": get_args("imaginacion", "imaginacion_occipital"),
             },
             "periferico": {"path": os.path.join(project_root, "sentidos", "sistema_periferico.py"), "args": []},
-            "intriga": {
-                "path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"),
-                "args": get_args("intriga", "protocolo_intriga"),
-            },
+            "intriga": {"path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"), "args": []},
             "web_search": {
                 "path": os.path.join(project_root, "cognitivo", "web_search.py"),
                 "args": get_args("web_search", "web_search"),

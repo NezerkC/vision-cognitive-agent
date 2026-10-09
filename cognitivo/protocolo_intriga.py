@@ -21,10 +21,9 @@ REJECTION_WORDS = {"no", "abortar", "aborta", "cancela", "cancelar"}
 
 
 class ProtocoloIntriga:
-    def __init__(self, host: str = "127.0.0.1", port: int = 5000, is_mock: bool = False):
+    def __init__(self, host: str = "127.0.0.1", port: int = 5000):
         self.host = host
         self.port = port
-        self.is_mock = is_mock
 
         # State tracking
         self.active_error = None
@@ -378,8 +377,7 @@ class ProtocoloIntriga:
 
 
 if __name__ == "__main__":
-    mock_flag = "--mock" in sys.argv
-    protocolo = ProtocoloIntriga(is_mock=mock_flag)
+    protocolo = ProtocoloIntriga()
     try:
         asyncio.run(protocolo.run())
     except KeyboardInterrupt:
