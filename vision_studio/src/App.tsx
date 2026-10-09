@@ -30,7 +30,9 @@ export default function App() {
 
   // The Rust file and shell commands only act inside the workspace registered here. The explorer waits for the root
   // Rust confirms, so it never lists before Rust switched to the new folder; replies for a replaced path are ignored.
+  // With no folder chosen yet there is nothing to register: the explorer shows its empty state instead.
   useEffect(() => {
+    if (!currentWorkspacePath) return;
     let current = true;
     invoke<string>('set_workspace', { path: currentWorkspacePath })
       .then((root) => {

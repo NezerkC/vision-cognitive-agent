@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { FolderOpen, GitPullRequest, History, ArrowRight, Loader2, Folder, CheckCircle, AlertCircle } from 'lucide-react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { pickWorkspaceFolder } from '../../lib/workspaceDialog';
 
 interface ProjectManagerProps {
   onWorkspaceOpened?: (path: string) => void;
@@ -12,8 +13,7 @@ export default function ProjectManager({ onWorkspaceOpened }: ProjectManagerProp
   const recentProjects = useSettingsStore(state => state.recentProjects);
   const addRecentProject = useSettingsStore(state => state.addRecentProject);
 
-  const [folderInput, setFolderInput] = useState('');
-  const [showFolderInput, setShowFolderInput] = useState(false);
+  const [isPicking, setIsPicking] = useState(false);
 
   const [gitUrl, setGitUrl] = useState('');
   const [showGitModal, setShowGitModal] = useState(false);
@@ -25,9 +25,21 @@ export default function ProjectManager({ onWorkspaceOpened }: ProjectManagerProp
     const cleanPath = path.trim();
     setCurrentWorkspacePath(cleanPath);
     addRecentProject(cleanPath);
-    setShowFolderInput(false);
-    setFolderInput('');
     if (onWorkspaceOpened) onWorkspaceOpened(cleanPath);
+  };
+
+  const handlePickFolder = async () => {
+    if (isPicking) return;
+    setIsPicking(true);
+    setStatusMessage(null);
+    try {
+      const path = await pickWorkspaceFolder();
+      if (path) handleOpenFolder(path);
+    } catch (err) {
+      setStatusMessage({ type: 'error', text: `No se pudo abrir el selector de carpetas: ${String(err)}` });
+    } finally {
+      setIsPicking(false);
+    }
   };
 
   const handleCloneGit = async () => {
@@ -64,39 +76,21 @@ export default function ProjectManager({ onWorkspaceOpened }: ProjectManagerProp
     <div className="p-3 space-y-4 text-xs font-sans select-none">
       {/* Botones Principales de Gestor de Proyectos */}
       <div className="space-y-2">
-        <button 
-          onClick={() => { setShowFolderInput(prev => !prev); setShowGitModal(false); }}
-          className="w-full bg-[#0e639c] hover:bg-[#1177bb] text-white p-2 rounded flex items-center justify-center gap-2 font-medium transition-colors"
+        <button
+          onClick={handlePickFolder}
+          disabled={isPicking}
+          className="w-full bg-[#0e639c] hover:bg-[#1177bb] disabled:opacity-50 text-white p-2 rounded flex items-center justify-center gap-2 font-medium transition-colors"
         >
-          <FolderOpen size={14} /> Abrir Carpeta
+          <FolderOpen size={14} /> {isPicking ? 'Esperando la carpeta…' : 'Abrir Carpeta'}
         </button>
 
-        <button 
-          onClick={() => { setShowGitModal(prev => !prev); setShowFolderInput(false); }}
+        <button
+          onClick={() => setShowGitModal(prev => !prev)}
           className="w-full bg-[#252526] hover:bg-[#2a2d2e] border border-[#3c3c3c] text-white p-2 rounded flex items-center justify-center gap-2 font-medium transition-colors"
         >
           <GitPullRequest size={14} className="text-amber-400" /> Clonar Repositorio Git
         </button>
       </div>
-
-      {/* Formulario Abrir Carpeta */}
-      {showFolderInput && (
-        <div className="bg-[#1e1e1f] p-2.5 rounded border border-[#3c3c3c] space-y-2 animate-fadeIn">
-          <span className="text-[11px] font-semibold text-gray-300 block">Ingresá la ruta de la carpeta:</span>
-          <input 
-            type="text" 
-            placeholder="ej. C:\Proyectos\mi-app..." 
-            value={folderInput}
-            onChange={e => setFolderInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleOpenFolder(folderInput)}
-            className="w-full bg-[#2d2d2d] border border-[#3c3c3c] rounded px-2 py-1 text-xs text-white outline-none focus:border-[#0e639c]"
-          />
-          <div className="flex justify-end gap-1">
-            <button onClick={() => setShowFolderInput(false)} className="px-2 py-0.5 text-gray-400 hover:text-white text-[10px]">Cancelar</button>
-            <button onClick={() => handleOpenFolder(folderInput)} className="px-2 py-0.5 bg-[#0e639c] text-white rounded text-[10px] font-medium">Abrir</button>
-          </div>
-        </div>
-      )}
 
       {/* Formulario Clonar Git */}
       {showGitModal && (

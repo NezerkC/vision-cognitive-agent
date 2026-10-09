@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { addRecentFolder, migrateWorkspacePreferences } from '../lib/recentFolders';
 
 interface SettingsState {
   // LLM Router
@@ -92,16 +93,13 @@ export const useSettingsStore = create<SettingsState>()(
       llmMode: 'hybrid',
       setLlmMode: (mode) => set({ llmMode: mode }),
 
-      // Workspace / Gestor de Proyectos
-      currentWorkspacePath: 'C:\\Users\\lolpl\\Desktop\\02_Proyectos_Dev\\vision-cognitive-agent',
+      // Workspace / Gestor de Proyectos: empty until the user picks a folder, so no default path is invented
+      currentWorkspacePath: '',
       setCurrentWorkspacePath: (path) => set({ currentWorkspacePath: path }),
-      recentProjects: [
-        'C:\\Users\\lolpl\\Desktop\\02_Proyectos_Dev\\vision-cognitive-agent'
-      ],
-      addRecentProject: (path) => set((state) => {
-        const filtered = (state.recentProjects || []).filter(p => p !== path);
-        return { recentProjects: [path, ...filtered].slice(0, 8) };
-      }),
+      recentProjects: [],
+      addRecentProject: (path) => set((state) => ({
+        recentProjects: addRecentFolder(state.recentProjects || [], path),
+      })),
       routingStrategy: 'locales',
       effortLevel: 'esfuerzo_medio',
       provider: 'ollama',
@@ -171,6 +169,12 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'vision-os-settings',
+      // Version 1 removes the hardcoded workspace that builds before version 1 stored. Runs only for older stored versions.
+      version: 1,
+      migrate: (persisted) => {
+        const stored = (persisted ?? {}) as Record<string, unknown>;
+        return { ...stored, ...migrateWorkspacePreferences(stored) } as SettingsState;
+      },
     }
   )
 );

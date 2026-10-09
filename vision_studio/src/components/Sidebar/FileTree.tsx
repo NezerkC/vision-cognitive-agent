@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Folder, FolderOpen, FileText, ChevronRight, ChevronDown, RefreshCw, FileCode, FileJson, FileType } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/useWorkspaceStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import {
   DirEntry,
   ROOT_DIR,
@@ -145,12 +146,14 @@ function WorkspaceTree({ root }: { root: string }) {
 export default function FileTree() {
   const root = useWorkspaceStore((state) => state.root);
   const openError = useWorkspaceStore((state) => state.error);
+  const requestedPath = useSettingsStore((state) => state.currentWorkspacePath);
 
   if (root === null) {
+    const message = openError ?? (requestedPath ? 'Abriendo proyecto…' : 'No hay proyecto abierto. Usa Abrir Carpeta.');
     return (
       <div className="flex flex-col text-xs text-gray-400 select-none p-1">
         <Header name="Workspace" />
-        <Note level={0} tone={openError ? 'error' : 'muted'}>{openError ?? 'Abriendo proyecto…'}</Note>
+        <Note level={0} tone={openError ? 'error' : 'muted'}>{message}</Note>
       </div>
     );
   }
