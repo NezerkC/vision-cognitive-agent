@@ -14,6 +14,7 @@ from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoa
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from cognitivo.llm_router import LLMRouter
 from memoria.lancedb_manager import BGEM3Embedder, check_embedder_compatibility, sql_string_literal
 
 logger = logging.getLogger("CuadernosManager")
@@ -24,6 +25,10 @@ CUADERNOS_DIR = os.path.join(PROJECT_ROOT, "memoria_activa", "cuadernos")
 METADATA_FILE = os.path.join(CUADERNOS_DIR, "notebooks.json")
 SOURCES_DIR = os.path.join(CUADERNOS_DIR, "sources")
 LANCE_DB_PATH = os.path.join(CUADERNOS_DIR, "lancedb_cuadernos")
+
+# Effort levels (config/effort_levels.json and the router's model strategy) for each notebook task.
+EFFORT_CHAT = "esfuerzo_medio"
+EFFORT_SINTESIS = "esfuerzo_alto"
 
 os.makedirs(CUADERNOS_DIR, exist_ok=True)
 os.makedirs(SOURCES_DIR, exist_ok=True)
@@ -76,6 +81,7 @@ def _notebook_sources_dir(notebook_id: str, metadata: dict[str, dict]) -> str:
 class CuadernosManager:
     def __init__(self):
         self.embedder = BGEM3Embedder(force_mock=False)
+        self.llm = LLMRouter()
         self.db = lancedb.connect(LANCE_DB_PATH)
         self._ensure_lancedb_table()
 
@@ -380,20 +386,13 @@ class CuadernosManager:
             .to_list()
         )
 
-    async def _completar(self, messages: list[dict], provider_api_key: str | None) -> str:
-        """One LLM completion. A failure raises NotebookLLMError; there is no fallback text."""
-        import litellm
-
-        api_key = provider_api_key or os.environ.get("OPENROUTER_API_KEY")
-        model = "openrouter/google/gemini-1.5-pro" if api_key else "gpt-3.5-turbo"
-        kwargs = {"model": model, "messages": messages, "temperature": 0.3}
-        if api_key:
-            kwargs["api_key"] = api_key
+    async def _completar(self, messages: list[dict], provider_api_key: str | None, effort: str) -> str:
+        """One completion through LLMRouter. A failure raises NotebookLLMError; there is no fallback text."""
         try:
-            response = await asyncio.to_thread(litellm.completion, **kwargs)
-            return response.choices[0].message.content
+            texto, _modelo = await self.llm.complete_messages(effort, messages, api_key=provider_api_key)
         except Exception as e:
             raise NotebookLLMError(f"El modelo de lenguaje no respondió: {e}") from e
+        return texto
 
     def _guardar_nota(self, notebook_id: str, title: str, tipo: str, content: str) -> dict:
         note_entry = {
@@ -426,7 +425,7 @@ class CuadernosManager:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Tema del informe: {consulta}"},
         ]
-        informe = await self._completar(messages, provider_api_key)
+        informe = await self._completar(messages, provider_api_key, EFFORT_SINTESIS)
         return self._guardar_nota(notebook_id, f"Informe: {consulta[:30]}", "informe_profundo", informe)
 
     async def generar_sintesis(
@@ -455,7 +454,7 @@ class CuadernosManager:
         )
 
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
-        generated_text = await self._completar(messages, provider_api_key)
+        generated_text = await self._completar(messages, provider_api_key, EFFORT_SINTESIS)
         return self._guardar_nota(notebook_id, f"Síntesis: {tipo_sintesis.capitalize()}", tipo_sintesis, generated_text)
 
     async def chat_cuaderno_stream(
@@ -531,21 +530,9 @@ class CuadernosManager:
                 messages.append({"role": h.get("role", "user"), "content": h.get("text", h.get("content", ""))})
         messages.append({"role": "user", "content": clean_query})
 
-        import litellm
-
-        api_key = provider_api_key or os.environ.get("OPENROUTER_API_KEY")
-        model = "openrouter/google/gemini-1.5-pro" if api_key else "gpt-3.5-turbo"
-
         try:
-            kwargs = {"model": model, "messages": messages, "stream": True, "temperature": 0.2}
-            if api_key:
-                kwargs["api_key"] = api_key
-
-            response = await asyncio.to_thread(litellm.completion, **kwargs)
-            for chunk in response:
-                delta = chunk.choices[0].delta.content or ""
-                if delta:
-                    yield delta
-                    await asyncio.sleep(0.01)
+            async for delta in self.llm.stream_messages(EFFORT_CHAT, messages, api_key=provider_api_key):
+                yield delta
+                await asyncio.sleep(0.01)
         except Exception as e:
             raise NotebookLLMError(f"El modelo de lenguaje no respondió: {e}") from e

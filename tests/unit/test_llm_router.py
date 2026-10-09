@@ -137,3 +137,139 @@ def test_resolve_api_key_never_sends_unresolved_references(monkeypatch, referenc
 @pytest.mark.parametrize("value", [None, ""])
 def test_resolve_api_key_without_value(value):
     assert resolve_api_key(value) is None
+
+
+def _router_config(tmp_path, monkeypatch):
+    """Router config with one strategy: esfuerzo_medio falls back to esfuerzo_bajo. Never reads the real config."""
+    path = tmp_path / "llm_router.yaml"
+    path.write_text(
+        "routing_strategy: pruebas\n"
+        "strategies:\n"
+        "  pruebas:\n"
+        "    esfuerzo_bajo:\n"
+        "      model: openrouter/pruebas/bajo\n"
+        "      fallback: null\n"
+        "    esfuerzo_medio:\n"
+        "      model: openrouter/pruebas/medio\n"
+        "      fallback: esfuerzo_bajo\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(llm_router, "CONFIG_PATH", str(path))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
+class _Delta:
+    def __init__(self, content):
+        self.delta = type("Delta", (), {"content": content})()
+
+
+class _Chunk:
+    def __init__(self, content):
+        self.choices = [_Delta(content)]
+
+
+async def _stream(parts):
+    for part in parts:
+        yield _Chunk(part)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_complete_messages_sends_the_whole_conversation(tmp_path, monkeypatch):
+    _router_config(tmp_path, monkeypatch)
+    sent = {}
+
+    async def completion(**kwargs):
+        sent.update(kwargs)
+        return _FakeCompletion("respuesta con contexto")
+
+    monkeypatch.setattr(llm_router.litellm, "acompletion", completion)
+    conversation = [{"role": "system", "content": "fuentes"}, {"role": "user", "content": "pregunta"}]
+
+    text, model = await LLMRouter().complete_messages("esfuerzo_bajo", conversation)
+
+    assert text == "respuesta con contexto"
+    assert model == "openrouter/pruebas/bajo"
+    assert sent["messages"] == conversation
+    assert sent["model"] == "openrouter/pruebas/bajo"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_complete_messages_uses_the_caller_key_instead_of_the_configured_one(tmp_path, monkeypatch):
+    _router_config(tmp_path, monkeypatch)
+    sent = {}
+
+    async def completion(**kwargs):
+        sent.update(kwargs)
+        return _FakeCompletion("ok")
+
+    monkeypatch.setattr(llm_router.litellm, "acompletion", completion)
+
+    await LLMRouter().complete_messages("esfuerzo_bajo", [{"role": "user", "content": "hola"}], api_key="sk-usuario")
+
+    assert sent["api_key"] == "sk-usuario"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stream_messages_yields_the_model_deltas(tmp_path, monkeypatch):
+    _router_config(tmp_path, monkeypatch)
+    sent = {}
+
+    async def completion(**kwargs):
+        sent.update(kwargs)
+        return _stream(["Hola ", "", "mundo"])
+
+    monkeypatch.setattr(llm_router.litellm, "acompletion", completion)
+
+    deltas = [d async for d in LLMRouter().stream_messages("esfuerzo_bajo", [{"role": "user", "content": "hola"}])]
+
+    assert deltas == ["Hola ", "mundo"]
+    assert sent["stream"] is True
+    assert sent["model"] == "openrouter/pruebas/bajo"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stream_messages_uses_the_fallback_when_the_stream_cannot_start(tmp_path, monkeypatch):
+    _router_config(tmp_path, monkeypatch)
+    models = []
+
+    async def completion(**kwargs):
+        models.append(kwargs["model"])
+        if kwargs["model"] == "openrouter/pruebas/medio":
+            raise ConnectionError("modelo medio caído")
+        return _stream(["respaldo"])
+
+    monkeypatch.setattr(llm_router.litellm, "acompletion", completion)
+
+    deltas = [d async for d in LLMRouter().stream_messages("esfuerzo_medio", [{"role": "user", "content": "hola"}])]
+
+    assert deltas == ["respaldo"]
+    assert models == ["openrouter/pruebas/medio", "openrouter/pruebas/bajo"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stream_messages_raises_when_no_model_can_start_the_stream(tmp_path, monkeypatch):
+    _router_config(tmp_path, monkeypatch)
+
+    async def unavailable(**kwargs):
+        raise ConnectionError("ningún modelo responde")
+
+    monkeypatch.setattr(llm_router.litellm, "acompletion", unavailable)
+
+    with pytest.raises(ConnectionError, match="ningún modelo responde"):
+        async for _ in LLMRouter().stream_messages("esfuerzo_bajo", [{"role": "user", "content": "hola"}]):
+            pass
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stream_messages_rejects_unknown_effort_level(tmp_path, monkeypatch):
+    _router_config(tmp_path, monkeypatch)
+
+    with pytest.raises(ValueError, match="esfuerzo_inexistente"):
+        async for _ in LLMRouter().stream_messages("esfuerzo_inexistente", [{"role": "user", "content": "hola"}]):
+            pass

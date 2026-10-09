@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+from collections.abc import AsyncGenerator
 
 import litellm
 import yaml
@@ -86,16 +87,20 @@ class LLMRouter:
 
     async def call_llm(self, effort: str, prompt: str) -> tuple[str, str]:
         """
-        Calls the model for the given effort level. Falls back recursively if it fails, and raises the last
-        error when no model answers.
+        Calls the model for the given effort level with a single user prompt.
         Returns: (response_text, model_name_used)
         """
+        return await self.complete_messages(effort, [{"role": "user", "content": prompt}])
+
+    def _model_config_for(self, effort: str) -> dict:
         model_cfg = self.get_model_config(effort)
         if not model_cfg:
             raise ValueError(f"No configuration found for effort level: {effort}")
+        return model_cfg
 
+    async def _request_params(self, effort: str, model_cfg: dict, api_key: str | None) -> dict:
+        """litellm arguments for one attempt at an effort level's model. A caller key replaces the configured one."""
         model_name = model_cfg.get("model")
-        fallback = model_cfg.get("fallback")
 
         # Load effort levels default parameters
         temp = 0.5
@@ -131,57 +136,62 @@ class LLMRouter:
             if not pulled_ok:
                 logger.warning(f"Failed to verify local model '{model_name}' presence.")
 
+        # Configure API base if provided (e.g. for LM Studio local models)
         api_base = model_cfg.get("api_base")
-        api_key = resolve_api_key(model_cfg.get("api_key"))
+        key = api_key or resolve_api_key(model_cfg.get("api_key"))
+
+        # Detect if model is local (Ollama or LM Studio) for generous timeout
+        es_local = model_name.startswith("ollama/") or (
+            api_base
+            and any(
+                h in (api_base or "").lower()
+                for h in ["localhost:11434", "localhost:1234", "127.0.0.1:11434", "127.0.0.1:1234"]
+            )
+        )
+
+        timeout_segundos = 30.0
+        if es_local:
+            # Resolve base model name (without 'ollama/' prefix if saved that way)
+            base_model = model_name[7:] if model_name.startswith("ollama/") else model_name
+            # Check if we have a measured benchmark for this model
+            benchmark_data = self.benchmarks.get(base_model) or self.benchmarks.get(model_name)
+            if benchmark_data and benchmark_data.get("status") == "success":
+                measured_time = float(benchmark_data.get("time_seconds", 30.0))
+                # Allow 2.5x the measured benchmark time as timeout buffer, minimum 45 seconds
+                timeout_segundos = max(measured_time * 2.5, 45.0)
+                logger.info(
+                    f"Using dynamic benchmarked timeout: {timeout_segundos:.2f}s for local model {model_name} (measured={measured_time:.2f}s)"
+                )
+            else:
+                timeout_segundos = 300.0  # Default generous timeout for unbenchmarked local models
+                logger.info(f"No benchmark found for local model {model_name}. Defaulting to {timeout_segundos}s.")
+        else:
+            logger.info(f"Timeout configured as {timeout_segundos}s for cloud model {model_name}.")
+
+        params = {"model": model_name, "timeout": timeout_segundos, "temperature": temp, "max_tokens": max_tokens}
+        if api_base:
+            params["api_base"] = api_base
+        if key:
+            params["api_key"] = key
+        return params
+
+    async def complete_messages(self, effort: str, messages: list[dict], api_key: str | None = None) -> tuple[str, str]:
+        """
+        Sends a conversation to the model for the given effort level. Falls back recursively if it fails, and raises
+        the last error when no model answers. api_key replaces the configured key for this call only.
+        Returns: (response_text, model_name_used)
+        """
+        model_cfg = self._model_config_for(effort)
+        params = await self._request_params(effort, model_cfg, api_key)
+        model_name = params["model"]
+        fallback = model_cfg.get("fallback")
 
         logger.info(
-            f"Attempting LLM call using model: {model_name} (Effort: {effort}, Temp: {temp}, MaxTokens: {max_tokens})"
+            f"Attempting LLM call using model: {model_name} (Effort: {effort}, Temp: {params['temperature']}, MaxTokens: {params['max_tokens']})"
         )
 
         try:
-            # Configure API base if provided (e.g. for LM Studio local models)
-            kwargs = {}
-            if api_base:
-                kwargs["api_base"] = api_base
-            if api_key:
-                kwargs["api_key"] = api_key
-
-            # Detect if model is local (Ollama or LM Studio) for generous timeout
-            es_local = model_name.startswith("ollama/") or (
-                api_base
-                and any(
-                    h in (api_base or "").lower()
-                    for h in ["localhost:11434", "localhost:1234", "127.0.0.1:11434", "127.0.0.1:1234"]
-                )
-            )
-
-            timeout_segundos = 30.0
-            if es_local:
-                # Resolve base model name (without 'ollama/' prefix if saved that way)
-                base_model = model_name[7:] if model_name.startswith("ollama/") else model_name
-                # Check if we have a measured benchmark for this model
-                benchmark_data = self.benchmarks.get(base_model) or self.benchmarks.get(model_name)
-                if benchmark_data and benchmark_data.get("status") == "success":
-                    measured_time = float(benchmark_data.get("time_seconds", 30.0))
-                    # Allow 2.5x the measured benchmark time as timeout buffer, minimum 45 seconds
-                    timeout_segundos = max(measured_time * 2.5, 45.0)
-                    logger.info(
-                        f"Using dynamic benchmarked timeout: {timeout_segundos:.2f}s for local model {model_name} (measured={measured_time:.2f}s)"
-                    )
-                else:
-                    timeout_segundos = 300.0  # Default generous timeout for unbenchmarked local models
-                    logger.info(f"No benchmark found for local model {model_name}. Defaulting to {timeout_segundos}s.")
-            else:
-                logger.info(f"Timeout configured as {timeout_segundos}s for cloud model {model_name}.")
-
-            response = await litellm.acompletion(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                timeout=timeout_segundos,
-                temperature=temp,
-                max_tokens=max_tokens,
-                **kwargs,
-            )
+            response = await litellm.acompletion(messages=messages, **params)
             response_text = response.choices[0].message.content
             return response_text, model_name
 
@@ -190,23 +200,23 @@ class LLMRouter:
             if fallback:
                 logger.info(f"Falling back from '{effort}' to '{fallback}'...")
                 try:
-                    return await self.call_llm(fallback, prompt)
+                    return await self.complete_messages(fallback, messages, api_key)
                 except Exception as fb_err:
                     logger.warning(f"Fallback '{fallback}' also failed: {fb_err}")
 
             # If the strategy/model call failed completely, attempt to fall back to OpenRouter API
             if "openrouter" not in model_name.lower():
                 logger.warning("Local LLM call failed. Attempting global safety fallback to OpenRouter API...")
-                or_key = os.environ.get("OPENROUTER_API_KEY")
+                or_key = api_key or os.environ.get("OPENROUTER_API_KEY")
                 if or_key:
                     try:
                         logger.info("Calling OpenRouter fallback: google/gemini-2.5-flash:free")
                         response = await litellm.acompletion(
                             model="openrouter/google/gemini-2.5-flash:free",
-                            messages=[{"role": "user", "content": prompt}],
+                            messages=messages,
                             timeout=20.0,
-                            temperature=temp,
-                            max_tokens=max_tokens,
+                            temperature=params["temperature"],
+                            max_tokens=params["max_tokens"],
                             api_base="https://openrouter.ai/api/v1",
                             api_key=or_key,
                         )
@@ -219,6 +229,35 @@ class LLMRouter:
                     logger.warning("OPENROUTER_API_KEY not found in environment. Cannot perform OpenRouter fallback.")
 
             raise e
+
+    async def stream_messages(
+        self, effort: str, messages: list[dict], api_key: str | None = None
+    ) -> AsyncGenerator[str, None]:
+        """
+        Streams the model answer for an effort level as text deltas, using litellm's async stream so the event loop
+        keeps running. If the model cannot start the stream, the configured fallback answers instead. An error after
+        the first delta is raised: retrying would repeat text the caller already received.
+        """
+        model_cfg = self._model_config_for(effort)
+        params = await self._request_params(effort, model_cfg, api_key)
+        model_name = params["model"]
+        logger.info(f"Attempting streamed LLM call using model: {model_name} (Effort: {effort})")
+
+        try:
+            stream = await litellm.acompletion(messages=messages, stream=True, **params)
+        except Exception as e:
+            fallback = model_cfg.get("fallback")
+            if not fallback:
+                raise
+            logger.warning(f"Stream from {model_name} failed ({e}). Falling back from '{effort}' to '{fallback}'...")
+            async for delta in self.stream_messages(fallback, messages, api_key):
+                yield delta
+            return
+
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                yield delta
 
     async def publish_log(self, writer, message: str):
         event = {"action": "publish", "topic": "canal.sistema.contexto_actual", "data": {"contexto": message}}

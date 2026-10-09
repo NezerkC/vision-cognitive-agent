@@ -20,7 +20,30 @@ async def _cuaderno_con_fuente(mgr: CuadernosManager) -> dict:
 
 
 @pytest.fixture
-def cuadernos_mgr(monkeypatch, tmp_path):
+def router_config(monkeypatch, tmp_path):
+    """Router config with one model for every effort level, so notebook calls never read the real config/."""
+    path = tmp_path / "llm_router.yaml"
+    path.write_text(
+        "routing_strategy: pruebas\n"
+        "strategies:\n"
+        "  pruebas:\n"
+        "    esfuerzo_bajo:\n"
+        "      model: openrouter/pruebas/cuadernos\n"
+        "      fallback: null\n"
+        "    esfuerzo_medio:\n"
+        "      model: openrouter/pruebas/cuadernos\n"
+        "      fallback: null\n"
+        "    esfuerzo_alto:\n"
+        "      model: openrouter/pruebas/cuadernos\n"
+        "      fallback: null\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("cognitivo.llm_router.CONFIG_PATH", str(path))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+
+@pytest.fixture
+def cuadernos_mgr(monkeypatch, tmp_path, router_config):
     monkeypatch.setattr("cognitivo.cuadernos_manager.CUADERNOS_DIR", str(tmp_path))
     monkeypatch.setattr("cognitivo.cuadernos_manager.METADATA_FILE", str(tmp_path / "notebooks.json"))
     monkeypatch.setattr("cognitivo.cuadernos_manager.SOURCES_DIR", str(tmp_path / "sources"))
@@ -63,36 +86,47 @@ def failing_web_search(monkeypatch):
     monkeypatch.setattr("cognitivo.skills.websearch_tool.WebSearchEngine", FailingSearchEngine)
 
 
+async def _stream_chunks(*parts):
+    for part in parts:
+        yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=part))])
+
+
+def _forbid_sync_completion(monkeypatch):
+    """Notebook calls go through the router's async path; the blocking litellm.completion must never run."""
+
+    def blocked(**kwargs):
+        raise AssertionError("litellm.completion (sync) must not be used by notebooks")
+
+    monkeypatch.setattr("litellm.completion", blocked)
+
+
 @pytest.fixture
-def fake_llm(monkeypatch):
-    """Offline litellm.completion that records the messages of every call (streamed or not)."""
+def fake_llm(monkeypatch, router_config):
+    """Offline litellm.acompletion that records the messages of every call (streamed or not)."""
     calls = []
 
-    def fake_completion(**kwargs):
+    async def fake_acompletion(**kwargs):
         calls.append(kwargs["messages"])
         if kwargs.get("stream"):
-            return [
-                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=part))])
-                for part in ("Respuesta ", "del modelo")
-            ]
+            return _stream_chunks("Respuesta ", "del modelo")
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Síntesis generada"))])
 
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr("litellm.completion", fake_completion)
+    _forbid_sync_completion(monkeypatch)
+    monkeypatch.setattr("litellm.acompletion", fake_acompletion)
     return calls
 
 
 @pytest.fixture
-def failing_llm(monkeypatch):
-    """litellm.completion failing like an unreachable provider; records the messages of every call."""
+def failing_llm(monkeypatch, router_config):
+    """litellm.acompletion failing like an unreachable provider; records the messages of every call."""
     calls = []
 
-    def failing_completion(**kwargs):
+    async def failing_completion(**kwargs):
         calls.append(kwargs["messages"])
         raise ConnectionError("proveedor LLM caído")
 
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr("litellm.completion", failing_completion)
+    _forbid_sync_completion(monkeypatch)
+    monkeypatch.setattr("litellm.acompletion", failing_completion)
     return calls
 
 
@@ -198,15 +232,15 @@ async def test_auto_research_synthesizes_after_source_is_indexed(cuadernos_mgr, 
 async def test_generar_sintesis_keeps_metadata_written_during_llm_call(cuadernos_mgr, monkeypatch):
     nb = await _cuaderno_con_fuente(cuadernos_mgr)
 
-    def completion_while_indexing_finishes(**kwargs):
+    async def completion_while_indexing_finishes(**kwargs):
         # Background indexing persists its metadata while the LLM call is in flight.
         metadata = cuadernos_mgr._load_metadata()
         metadata[nb["id"]]["sources"].append({"id": "src1", "filename": "doc2.txt", "status": "ready", "chunks": 1})
         cuadernos_mgr._save_metadata(metadata)
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Resumen"))])
 
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.setattr("litellm.completion", completion_while_indexing_finishes)
+    _forbid_sync_completion(monkeypatch)
+    monkeypatch.setattr("litellm.acompletion", completion_while_indexing_finishes)
 
     await cuadernos_mgr.generar_sintesis(nb["id"], "resumen")
 
@@ -543,3 +577,66 @@ def test_sintesis_endpoint_maps_notebook_errors_to_http_status(cuadernos_mgr, cl
     assert resp.status_code == 502
     assert "proveedor LLM caído" in resp.json()["message"]
     assert all(nb["notes"] == [] for nb in cuadernos_mgr.list_cuadernos())
+
+
+def _spy_on_router(cuadernos_mgr, monkeypatch):
+    """Records (kind, effort, api_key) of every router call the notebooks make; the router itself still runs."""
+    calls = []
+    router = cuadernos_mgr.llm
+    original_complete = router.complete_messages
+    original_stream = router.stream_messages
+
+    async def complete_spy(effort, messages, api_key=None):
+        calls.append(("complete", effort, api_key))
+        return await original_complete(effort, messages, api_key=api_key)
+
+    def stream_spy(effort, messages, api_key=None):
+        calls.append(("stream", effort, api_key))
+        return original_stream(effort, messages, api_key=api_key)
+
+    monkeypatch.setattr(router, "complete_messages", complete_spy)
+    monkeypatch.setattr(router, "stream_messages", stream_spy)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_notebook_model_comes_from_the_router_config(cuadernos_mgr, monkeypatch):
+    nb = await _cuaderno_con_fuente(cuadernos_mgr)
+    models = []
+
+    async def completion(**kwargs):
+        models.append(kwargs["model"])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="Resumen"))])
+
+    _forbid_sync_completion(monkeypatch)
+    monkeypatch.setattr("litellm.acompletion", completion)
+
+    await cuadernos_mgr.generar_sintesis(nb["id"], "resumen")
+
+    assert models == ["openrouter/pruebas/cuadernos"]
+
+
+@pytest.mark.asyncio
+async def test_synthesis_asks_the_router_for_high_effort_with_the_caller_key(cuadernos_mgr, monkeypatch, fake_llm):
+    nb = await _cuaderno_con_fuente(cuadernos_mgr)
+    calls = _spy_on_router(cuadernos_mgr, monkeypatch)
+
+    await cuadernos_mgr.generar_sintesis(nb["id"], "resumen", "sk-usuario")
+
+    assert calls == [("complete", "esfuerzo_alto", "sk-usuario")]
+
+
+@pytest.mark.asyncio
+async def test_chat_streams_through_the_router_with_medium_effort(cuadernos_mgr, monkeypatch, fake_llm):
+    nb = await _cuaderno_con_fuente(cuadernos_mgr)
+    calls = _spy_on_router(cuadernos_mgr, monkeypatch)
+
+    chunks = [
+        chunk
+        async for chunk in cuadernos_mgr.chat_cuaderno_stream(
+            nb["id"], "¿Dónde guarda los vectores?", provider_api_key="sk-usuario"
+        )
+    ]
+
+    assert "".join(chunks) == "Respuesta del modelo"
+    assert calls == [("stream", "esfuerzo_medio", "sk-usuario")]
