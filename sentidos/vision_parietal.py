@@ -30,6 +30,10 @@ CONFIG_PATH = os.path.join(
 )
 
 
+class ScreenCaptureError(RuntimeError):
+    """The screen could not be captured."""
+
+
 class VisionParietal:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000, force_mock: bool = False):
         self.host = host
@@ -53,14 +57,23 @@ class VisionParietal:
 
         self.last_image = None
         self.sct = None
+        self.last_capture_error = None
 
         if not self.force_mock:
             try:
+                self._ensure_capture()
+            except ScreenCaptureError as e:
+                logger.error(f"{e}. Screenshots will fail until the display is available.")
+
+    def _ensure_capture(self):
+        """Create the mss grabber on first use (also after switching from mock to real mode)."""
+        if self.sct is None:
+            try:
                 self.sct = mss.mss()
-                logger.info(f"Initialized mss screen capture. Monitors detected: {len(self.sct.monitors) - 1}")
             except Exception as e:
-                logger.warning(f"Could not initialize mss screen capture ({e}). Falling back to mock generator.")
-                self.force_mock = True
+                raise ScreenCaptureError(f"Could not start screen capture: {e}") from e
+            logger.info(f"Initialized mss screen capture. Monitors detected: {len(self.sct.monitors) - 1}")
+        return self.sct
 
     def load_config(self):
         try:
@@ -193,43 +206,49 @@ class VisionParietal:
                         self.load_config()
                     elif action == "reload_arranque":
                         try:
-                            arr_path = os.path.join(
-                                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "arranque.yaml"
-                            )
-                            if os.path.exists(arr_path):
-                                with open(arr_path, encoding="utf-8") as f:
-                                    import yaml
+                            from core.arranque import read_mock_flag
 
-                                    arr_cfg = yaml.safe_load(f)
-                                mock_flag = arr_cfg.get("modos_mock", {}).get("vision_parietal", True)
-                                self.force_mock = mock_flag or ("--mock" in sys.argv)
-                                logger.info(f"👁️ Visión Parietal: Estado mock actualizado a {self.force_mock}")
+                            self.force_mock = read_mock_flag("vision_parietal") or ("--mock" in sys.argv)
+                            logger.info(f"👁️ Visión Parietal: Estado mock actualizado a {self.force_mock}")
                         except Exception as ex:
                             logger.warning(f"Failed to reload mock settings in Vision: {ex}")
         except Exception as e:
             logger.error(f"Reader daemon error: {e}")
 
     def capture_screenshot(self) -> Image.Image:
+        """Grab the configured monitor. Raises ScreenCaptureError instead of returning a placeholder frame."""
         if self.force_mock:
-            # Generate dummy solid color image representing mock screen
-            img = Image.new("RGB", (320, 240), color=(10, 30, 80))
-            return img
+            # Explicit mock mode (config/arranque.yaml): a solid frame, published with "mock": true.
+            return Image.new("RGB", (320, 240), color=(10, 30, 80))
 
+        sct = self._ensure_capture()
         try:
             # Check monitor boundary
-            if self.monitor_index >= len(self.sct.monitors):
+            if self.monitor_index >= len(sct.monitors):
                 logger.warning(f"Monitor {self.monitor_index} not found. Defaulting to monitor 1.")
-                monitor = self.sct.monitors[1]
+                monitor = sct.monitors[1]
             else:
-                monitor = self.sct.monitors[self.monitor_index]
+                monitor = sct.monitors[self.monitor_index]
 
-            sct_img = self.sct.grab(monitor)
+            sct_img = sct.grab(monitor)
             # Convert mss format to PIL Image
-            img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
-            return img
+            return Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX")
         except Exception as e:
-            logger.error(f"Error grabbing screenshot: {e}. Falling back to mock image.")
-            return Image.new("RGB", (320, 240), color=(10, 30, 80))
+            raise ScreenCaptureError(f"Error grabbing screenshot: {e}") from e
+
+    async def report_capture_error(self, writer, error: str):
+        """Announce a capture failure in the HUD once per distinct error instead of every interval."""
+        logger.error(error)
+        if error == self.last_capture_error:
+            return
+        self.last_capture_error = error
+        event = {
+            "action": "publish",
+            "topic": "canal.sistema.anuncios",
+            "data": {"mensaje": f"[VISIÓN] No puedo capturar la pantalla: {error}", "timestamp": time.time()},
+        }
+        writer.write((json.dumps(event) + "\n").encode("utf-8"))
+        await writer.drain()
 
     def has_changed(self, current_img: Image.Image) -> bool:
         if self.force_mock:
@@ -285,7 +304,13 @@ class VisionParietal:
 
                     # Capture frame in threadpool to avoid blocking event loop
                     loop = asyncio.get_running_loop()
-                    img = await loop.run_in_executor(None, self.capture_screenshot)
+                    try:
+                        img = await loop.run_in_executor(None, self.capture_screenshot)
+                    except ScreenCaptureError as e:
+                        await self.report_capture_error(writer, str(e))
+                        await asyncio.sleep(self.interval)
+                        continue
+                    self.last_capture_error = None
                     screen_changed = self.has_changed(img)
 
                     cam_b64 = await loop.run_in_executor(None, self.capture_camera)

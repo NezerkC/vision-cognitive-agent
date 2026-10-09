@@ -139,8 +139,39 @@ async def test_mock_mode_never_runs_a_real_shell(monkeypatch):
 
     result = await EjecutorIzquierdo(is_mock=True).execute_script("echo hola")
 
-    assert result["status"] == "success"
-    assert "simulated" in result["detail"].lower()
+    assert result["status"] == "error"
+    assert "exit_code" not in result
+    assert "mock" in result["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_unknown_ui_commands_are_rejected_before_anything_runs(monkeypatch):
+    import cognitivo.ejecutor_izquierdo as ejecutor_module
+
+    pressed = []
+    monkeypatch.setattr(ejecutor_module, "pyautogui", type("Gui", (), {"press": staticmethod(pressed.append)})())
+
+    result = await EjecutorIzquierdo(is_mock=False).execute_control_ui(["win", "borrar_todo"])
+
+    assert result["status"] == "error"
+    assert "borrar_todo" in result["detail"]
+    assert pressed == []
+
+
+@pytest.mark.asyncio
+async def test_mock_mode_reports_ui_actions_as_not_executed(monkeypatch):
+    import cognitivo.ejecutor_izquierdo as ejecutor_module
+
+    class Forbidden:
+        def __getattr__(self, name):
+            raise AssertionError("pyautogui was used in mock mode")
+
+    monkeypatch.setattr(ejecutor_module, "pyautogui", Forbidden())
+
+    result = await EjecutorIzquierdo(is_mock=True).execute_control_ui(["win"])
+
+    assert result["status"] == "error"
+    assert "mock" in result["detail"].lower()
 
 
 @pytest.mark.asyncio
@@ -171,8 +202,8 @@ async def test_script_that_outlives_the_timeout_is_killed_with_its_children(monk
 
 
 @pytest.mark.asyncio
-async def test_missing_pyautogui_only_simulates_ui_actions(monkeypatch):
-    """Headless hosts lack pyautogui: UI automation must be simulated, but shell commands still run."""
+async def test_missing_pyautogui_fails_ui_actions_but_still_runs_scripts(monkeypatch):
+    """Headless hosts lack pyautogui: UI actions report an error, but shell commands still run."""
     import sys
 
     import cognitivo.ejecutor_izquierdo as ejecutor_module
@@ -183,6 +214,7 @@ async def test_missing_pyautogui_only_simulates_ui_actions(monkeypatch):
     ui_result = await ejecutor.execute_control_ui(["win"])
     script_result = await ejecutor.execute_script(f'"{sys.executable}" -c "print(42)"')
 
-    assert "simulated" in ui_result["detail"].lower()
+    assert ui_result["status"] == "error"
+    assert "pyautogui" in ui_result["detail"]
     assert script_result["status"] == "success"
     assert script_result["stdout"].strip() == "42"

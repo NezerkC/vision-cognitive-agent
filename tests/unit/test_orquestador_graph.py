@@ -1,3 +1,7 @@
+import inspect
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from cognitivo import orquestador_graph as og
@@ -10,7 +14,6 @@ def _state(**overrides):
         "vagones_informacion": [],
         "respuesta_final": "",
         "request_id": "req-1",
-        "mock": False,
     }
     state.update(overrides)
     return state
@@ -54,3 +57,31 @@ async def test_ejecutar_passes_memory_search_to_graph(monkeypatch):
 
     assert await og.ejecutar_orquestador_graph("hola", "req-2", memory_search=memory_search) == "ok"
     assert captured["config"]["configurable"]["memory_search"] is memory_search
+
+
+def test_graph_has_no_mock_mode():
+    assert "mock" not in og.EstadoAgente.__annotations__
+    assert "mock" not in inspect.signature(og.ejecutar_orquestador_graph).parameters
+
+
+@pytest.mark.asyncio
+async def test_ejecutar_raises_when_the_graph_fails(monkeypatch):
+    class BrokenGraph:
+        async def ainvoke(self, state, config=None):
+            raise RuntimeError("nodo roto")
+
+    monkeypatch.setattr(og, "orquestador_graph", BrokenGraph())
+
+    with pytest.raises(RuntimeError, match="nodo roto"):
+        await og.ejecutar_orquestador_graph("hola", "req-3")
+
+
+@pytest.mark.asyncio
+async def test_respuesta_node_propagates_llm_errors(monkeypatch):
+    async def unavailable(*args, **kwargs):
+        raise ConnectionError("sin modelo")
+
+    monkeypatch.setitem(sys.modules, "llm_router", SimpleNamespace(enrutar_peticion=unavailable))
+
+    with pytest.raises(ConnectionError):
+        await og.nodo_respuesta(_state(ruta_planeada=[]))

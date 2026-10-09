@@ -14,7 +14,7 @@ from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoa
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memoria.lancedb_manager import BGEM3Embedder, sql_string_literal
+from memoria.lancedb_manager import BGEM3Embedder, check_embedder_compatibility, sql_string_literal
 
 logger = logging.getLogger("CuadernosManager")
 logger.setLevel(logging.INFO)
@@ -64,7 +64,7 @@ class CuadernosManager:
     def _ensure_lancedb_table(self):
         schema = pa.schema(
             [
-                ("vector", pa.list_(pa.float32(), 1024)),
+                ("vector", pa.list_(pa.float32(), self.embedder.dimension)),
                 ("text", pa.string()),
                 ("notebook_id", pa.string()),
                 ("source_name", pa.string()),
@@ -76,6 +76,7 @@ class CuadernosManager:
             logger.info("LanceDB table 'cuadernos_chunks' created successfully.")
         else:
             self.table = self.db.open_table("cuadernos_chunks")
+        check_embedder_compatibility(LANCE_DB_PATH, self.embedder, has_rows=self.table.count_rows() > 0)
 
     def _load_metadata(self) -> dict[str, dict]:
         if not os.path.exists(METADATA_FILE):

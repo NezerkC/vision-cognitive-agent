@@ -86,7 +86,9 @@ class CerebeloMemoria4D:
         }
 
         # Delegate execution to database manager
-        await self.db_manager.handle_guardar(writer=None, data=payload)
+        saved = await self.db_manager.handle_guardar(writer=None, data=payload)
+        if not saved:
+            return {"status": "error", "tier": tier, "text": texto, "error": "the memory could not be saved"}
 
         dist_origen = calcular_distancia_4d(coordenada_x, coordenada_y, coordenada_z, coordenada_w)
         return {

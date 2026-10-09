@@ -68,18 +68,6 @@ interface SettingsState {
   llamacppHost: string;
   llamacppServerStatus: 'stopped' | 'loading' | 'running' | 'error';
   customBatPresets: { id: string; name: string; config: any }[];
-  systemTelemetry: {
-    cpuPercent: number;
-    ramUsedGb: number;
-    ramTotalGb: number;
-    ramPercent: number;
-    vramUsedGb: number;
-    vramTotalGb: number;
-    vramPercent: number;
-    gpuTemp: number;
-    cpuTemp: number;
-    disks: { name: string; freeGb: number; totalGb: number; percent: number }[];
-  };
 
   // Acciones
   setSetting: <K extends keyof Omit<SettingsState, 'setSetting' | 'setApiKey' | 'setProviderModel' | 'setSettingsModalOpen' | 'setActiveSidebarTab' | 'setTerminalOpen' | 'setLlmMode' | 'setEndpoint' | 'addCustomBatPreset'>>(key: K, value: SettingsState[K]) => void;
@@ -165,21 +153,6 @@ export const useSettingsStore = create<SettingsState>()(
       customBatPresets: [
         { id: 'custom-qwen-35b-opt', name: 'Mi Config Qwen 35B Optimizada', config: { ngl: 999, c: 131072, ctk: 'q4_0', ctv: 'q4_0', fa: true, mtp: true, mtpDraftMax: 2, temp: 0.7, topP: 0.8 } }
       ],
-      systemTelemetry: {
-        cpuPercent: 12,
-        ramUsedGb: 14.8,
-        ramTotalGb: 32.0,
-        ramPercent: 46,
-        vramUsedGb: 12.4,
-        vramTotalGb: 16.3,
-        vramPercent: 76,
-        gpuTemp: 48,
-        cpuTemp: 52,
-        disks: [
-          { name: 'C: (SSD NVMe)', freeGb: 240, totalGb: 1000, percent: 76 },
-          { name: 'D: (HDD)', freeGb: 850, totalGb: 2000, percent: 57.5 }
-        ]
-      },
 
       setSetting: (key, value) => set((state) => ({ ...state, [key]: value })),
       setApiKey: (provider, key) => set((state) => ({ 

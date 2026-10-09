@@ -15,8 +15,15 @@ def test_calcular_distancia_4d():
     assert dist == 5.0
 
 
+@pytest.fixture
+def isolated_memory(tmp_path, monkeypatch):
+    """The memory stores use relative paths; run from a temp dir so tests never touch the real memoria_activa."""
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
 @pytest.mark.asyncio
-async def test_cerebelo_memoria_4d():
+async def test_cerebelo_memoria_4d(isolated_memory):
     cerebelo = CerebeloMemoria4D()
     cerebelo.init_memory(mock_embedder=True)
 
@@ -40,7 +47,7 @@ async def test_cerebelo_memoria_4d():
 
 
 @pytest.mark.asyncio
-async def test_pineal_daemon_consolidation():
+async def test_pineal_daemon_consolidation(isolated_memory):
     daemon = PinealDaemon(is_mock=True, idle_threshold_seconds=1.0)
     daemon.cerebelo.init_memory(mock_embedder=True)
 
@@ -48,8 +55,8 @@ async def test_pineal_daemon_consolidation():
     res_cons = await daemon.run_consolidation()
     assert res_cons["status"] == "success"
 
-    summary = await daemon.generate_context_summary()
-    assert "Consolidación nocturna" in summary
+    # No activity was recorded, so there is nothing to summarize.
+    assert await daemon.generate_context_summary() is None
 
     triples = await daemon.build_graphrag_index()
     assert isinstance(triples, list)

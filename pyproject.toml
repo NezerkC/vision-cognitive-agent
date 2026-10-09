@@ -60,7 +60,7 @@ python_files = ["test_*.py"]
 asyncio_mode = "auto"
 markers = [
     "unit: Tests unitarios sin dependencias externas",
-    "integration: Tests de integracion con broker real",
+    "integration: Tests that need the network or running services; skipped unless pytest runs with --run-integration",
     "slow: Tests lentos (>5s)",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]

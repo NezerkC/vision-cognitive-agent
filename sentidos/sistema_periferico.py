@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 
 import httpx
 import lancedb
@@ -20,6 +21,8 @@ from fastapi.staticfiles import StaticFiles
 from langchain_community.document_loaders import CSVLoader, PyPDFLoader, TextLoader
 
 from cognitivo.cuadernos_manager import CuadernosManager, NotebookNotFoundError
+from cognitivo.ejecutor_izquierdo import ACTION_TOPIC, SUPPORTED_TOOLS
+from cognitivo.modelo_vision import HARDWARE_CONFIG_PATH, resolve_vision_model
 from sentidos.credenciales import guardar_credencial, leer_credenciales_enmascaradas
 from sentidos.limites_subida import read_upload_limited
 from sentidos.seguridad_local import accept_local_websocket, install_local_origin_guards
@@ -46,6 +49,8 @@ os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
 ARTIFACTS_DIR = os.path.join(PROJECT_ROOT, "artifacts")
 os.makedirs(ARTIFACTS_DIR, exist_ok=True)
 GUI_DIR = os.path.join(PROJECT_ROOT, "gui")
+# The orchestrator and the watchdog refresh config/.health_status.json every 3 seconds.
+HEALTH_STALE_SECONDS = 15
 
 app.mount("/artifacts", StaticFiles(directory=ARTIFACTS_DIR), name="artifacts")
 if os.path.exists(GUI_DIR):
@@ -83,6 +88,24 @@ async def get_graph():
 # Shared state class to manage TCP connections to the Event Broker and
 # WebSocket client pool
 # ---------------------------------------------------------------------------
+# Broker topics relayed to the HUD (and Vision Studio) over the WebSocket.
+HUD_TOPICS = [
+    "canal.sistema.contexto_actual",
+    "canal.sensorial.audio.transcripcion",
+    "canal.ejecucion.accion",
+    "canal.ejecucion.resultado",
+    "canal.imaginacion.respuesta",
+    "canal.sistema.anuncios",
+    "canal.sensorial.vision",
+    "canal.memoria",
+    "canal.cognitivo.entrada",
+    "canal.cognitivo.peticion",
+    "canal.cognitivo.respuesta",
+    "canal.sensorial.periferico",
+    "canal.sensorial.archivo_recibido",
+]
+
+
 class PerifericoGateway:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000, web_port: int = 8000):
         self.host = host
@@ -106,28 +129,7 @@ class PerifericoGateway:
                     logger.info("Connected to event broker. Subscribing to system and visual topics...")
 
                     # Subscribe to all relevant system/sensory/execution topics for the GUI
-                    subscribe_msg = (
-                        json.dumps(
-                            {
-                                "action": "subscribe",
-                                "topics": [
-                                    "canal.sistema.contexto_actual",
-                                    "canal.sensorial.audio.transcripcion",
-                                    "canal.ejecucion.accion",
-                                    "canal.ejecucion.resultado",
-                                    "canal.imaginacion.respuesta",
-                                    "canal.sistema.anuncios",
-                                    "canal.sensorial.vision",
-                                    "canal.memoria",
-                                    "canal.cognitivo.entrada",
-                                    "canal.cognitivo.peticion",
-                                    "canal.cognitivo.respuesta",
-                                    "system",
-                                ],
-                            }
-                        )
-                        + "\n"
-                    )
+                    subscribe_msg = json.dumps({"action": "subscribe", "topics": [*HUD_TOPICS, "system"]}) + "\n"
                     self.writer.write(subscribe_msg.encode("utf-8"))
                     await self.writer.drain()
 
@@ -289,15 +291,23 @@ async def get_health():
       - Current emotional state (from config/emotions.json)
       - Memory tier storage usage (from memoria_activa/ size × config)
     """
-    result = {"services": {}, "emotion": None, "memory_tier": {"hot_usage_pct": 0.0, "hot_usage_gb": 0.0}}
+    result = {
+        "services": {},
+        "stale": True,
+        "emotion": None,
+        "memory_tier": {"hot_usage_pct": 0.0, "hot_usage_gb": 0.0},
+    }
 
-    # 1. Read watchdog health status file
+    # 1. Read the health file the orchestrator or the watchdog refreshes every few seconds.
+    #    A missing or old file means nobody is supervising the services, so the status is stale.
     health_path = os.path.join(PROJECT_ROOT, "config", ".health_status.json")
     try:
         if os.path.exists(health_path):
             with open(health_path, encoding="utf-8") as f:
                 health_data = json.load(f)
             result["services"] = health_data.get("services", {})
+            age = time.time() - float(health_data.get("timestamp", 0))
+            result["stale"] = age > HEALTH_STALE_SECONDS
     except Exception as e:
         logger.error(f"Error reading health status: {e}")
 
@@ -379,25 +389,34 @@ async def get_memoria():
         return []
     try:
         db = lancedb.connect(db_path)
-        if "memoria_fractal" in db.list_tables():
-            tbl = db.open_table("memoria_fractal")
-            df = tbl.to_pandas()
-            results = []
-            for _, row in df.iterrows():
-                results.append(
-                    {
-                        "id": row.get("id", ""),
-                        "texto": row.get("texto", ""),
-                        "x": float(row.get("x", 0.0)),
-                        "y": float(row.get("y", 0.0)),
-                        "z": float(row.get("z", 0.0)),
-                        "timestamp": float(row.get("timestamp", 0.0)),
-                    }
-                )
-            return results
+        if "memoria_fractal" not in db.table_names():
+            return []
+        columns = ["text", "coordenada_x", "coordenada_y", "coordenada_z", "coordenada_w", "metadata"]
+        rows = db.open_table("memoria_fractal").to_arrow().select(columns).to_pylist()
     except Exception as e:
         logger.error(f"Error reading memory for API: {e}")
-    return []
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
+    results = []
+    for index, row in enumerate(rows):
+        try:
+            meta = json.loads(row.get("metadata") or "{}")
+        except json.JSONDecodeError:
+            meta = {}
+        results.append(
+            {
+                # The table has no id column; the row position is stable for one response.
+                "id": str(index),
+                "texto": row["text"],
+                "x": row["coordenada_x"],
+                "y": row["coordenada_y"],
+                "z": row["coordenada_z"],
+                "w": row["coordenada_w"],
+                "metadata": meta,
+                "timestamp": meta.get("timestamp"),
+            }
+        )
+    return results
 
 
 @app.get("/models")
@@ -697,12 +716,11 @@ async def get_config_arranque():
     defaults = {
         "modos_mock": {
             "vision_parietal": False,
-            "oido_parietal": True,
-            "imaginacion_occipital": True,
-            "ejecutor_izquierdo": True,
-            "lancedb_manager": True,
-            "protocolo_intriga": True,
-            "habla_parietal": True,
+            "oido_parietal": False,
+            "imaginacion_occipital": False,
+            "ejecutor_izquierdo": False,
+            "lancedb_manager": False,
+            "habla_parietal": False,
         }
     }
     try:
@@ -729,24 +747,13 @@ async def save_config_arranque(request: Request):
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
-def get_vision_model_details():
-    try:
-        yaml_path = os.path.join(PROJECT_ROOT, "config", "llm_router.yaml")
-        with open(yaml_path, encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        strategy = cfg.get("routing_strategy", "hibrido_api")
-        model_cfg = cfg.get("strategies", {}).get(strategy, {}).get("esfuerzo_medio", {})
-        model_name = model_cfg.get("model", "openrouter/google/gemini-2.5-flash:free")
-        api_base = model_cfg.get("api_base")
-        api_key_env = model_cfg.get("api_key")
-        api_key = os.environ.get(api_key_env, api_key_env) if api_key_env else None
-        return model_name, api_base, api_key
-    except Exception:
-        return (
-            "openrouter/google/gemini-2.5-flash:free",
-            "https://openrouter.ai/api/v1",
-            os.environ.get("OPENROUTER_API_KEY"),
-        )
+def get_vision_model_details(config_path: str | None = None):
+    """Vision model for uploaded images: the same one that analyses screenshots (vision_activa.modelo_vision).
+
+    Raises VisionModelNotConfiguredError when none is set instead of describing images with a text-only model.
+    """
+    vision = resolve_vision_model(config_path or HARDWARE_CONFIG_PATH)
+    return vision.model, vision.api_base, vision.api_key
 
 
 @app.post("/api/memoria/aprender")
@@ -807,7 +814,7 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                 kwargs["api_key"] = api_key
 
             logger.info(f"Calling vision model '{model_name}' to describe image...")
-            response = await litellm.acompletion(model=model_name, messages=messages, timeout=30.0, **kwargs)
+            response = await litellm.acompletion(model=model_name, messages=messages, timeout=180.0, **kwargs)
             text_content = response.choices[0].message.content
             logger.info("Successfully generated image description.")
 
@@ -835,12 +842,8 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                         audio_data = recognizer.record(src)
                         text_content = recognizer.recognize_google(audio_data, language="es-ES")
                 except Exception as audio_err:
-                    logger.warning(
-                        f"Local speech recognition failed: {audio_err}. Generating fallback mock transcript."
-                    )
-                    text_content = f"[Transcripción de audio fallida] Archivo: {filename}."
-                    if description:
-                        text_content += f" Descripción del audio: {description}"
+                    # Never store a placeholder as if it were the transcript.
+                    raise ValueError(f"Could not transcribe '{filename}': {audio_err}") from audio_err
             logger.info("Audio transcription completed.")
 
         # Documents (PDF, CSV, plain text)
@@ -893,7 +896,8 @@ async def api_memoria_aprender(file: UploadFile = File(...), description: str = 
                 "text": text_content,
                 "coordenada_x": 0.0,
                 "coordenada_y": 0.0,
-                "temperatura_z": 100.0,  # Save to SSD Hot memory tier
+                "coordenada_z": 0.0,
+                "coordenada_w": 100.0,  # High W: keep explicitly taught material in the hot tier
                 "escala_magnitud": "KB",
                 "metadata": metadata_payload,
             },
@@ -1140,6 +1144,45 @@ async def upload_sensorial(file: UploadFile = File(...)):
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 
+@app.post("/api/ejecucion/accion")
+async def api_solicitar_accion(request: Request):
+    """
+    Asks the PC executor to run an action. Nothing runs here: the request appears as a ticket on the HUD, and the
+    executor waits for the human's canal.ejecucion.aprobacion before it touches the system.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Invalid JSON body."})
+    if not isinstance(body, dict):
+        return JSONResponse(status_code=400, content={"status": "error", "message": "Expected a JSON object."})
+
+    herramienta = body.get("herramienta")
+    parametros = body.get("parametros")
+    if not isinstance(herramienta, str) or herramienta not in SUPPORTED_TOOLS:
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": f"Unsupported tool: {herramienta!r}."},
+        )
+    if not isinstance(parametros, list) or not parametros or not all(isinstance(p, str) for p in parametros):
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "parametros must be a non-empty list of strings."},
+        )
+
+    request_id = f"accion-{uuid.uuid4().hex}"
+    queued = await gateway.publish_event(
+        ACTION_TOPIC,
+        {"request_id": request_id, "herramienta": herramienta, "parametros": parametros, "timestamp": time.time()},
+    )
+    if not queued:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "message": "The event broker is offline; nothing was queued."},
+        )
+    return JSONResponse(status_code=202, content={"status": "pending_approval", "request_id": request_id})
+
+
 @app.websocket("/ws")
 async def websocket_sensorial(websocket: WebSocket):
     """
@@ -1193,61 +1236,66 @@ async def websocket_sensorial(websocket: WebSocket):
         logger.info(f"Dashboard client cleaned up. Connected remaining: {len(gateway.active_websockets)}")
 
 
+def construir_payload_telemetria() -> dict:
+    """Hardware telemetry, Plutchik emotion state and 4D memory nodes for the HUD. Missing readings stay None."""
+    # 1. Hardware & System Telemetry
+    telemetry = {}
+    if obtener_telemetria_sistema:
+        try:
+            telemetry = obtener_telemetria_sistema()
+        except Exception as e:
+            logger.warning(f"Could not read system telemetry: {e}")
+
+    # 2. Emotion state
+    emotion = None
+    emotion_path = os.path.join(PROJECT_ROOT, "config", "emotions.json")
+    if os.path.exists(emotion_path):
+        try:
+            with open(emotion_path, encoding="utf-8") as f:
+                emotion = json.load(f)
+        except Exception:
+            pass
+
+    # 3. 4D Memory Radar Nodes
+    memory_nodes = []
+    mem_path = os.path.join(PROJECT_ROOT, "memoria_activa")
+    if os.path.exists(mem_path):
+        try:
+            db = lancedb.connect(mem_path)
+            if "memoria_fractal" in db.table_names():
+                tbl = db.open_table("memoria_fractal")
+                df = tbl.to_pandas().head(100)
+                for _, row in df.iterrows():
+                    memory_nodes.append(
+                        {
+                            "text": str(row.get("text", "")),
+                            "x": float(row.get("coordenada_x", 0.0)),
+                            "y": float(row.get("coordenada_y", 0.0)),
+                            "z": float(row.get("coordenada_z", 0.0)),
+                            "w": float(row.get("coordenada_w", 100.0)),
+                        }
+                    )
+        except Exception:
+            pass
+
+    return {
+        "topic": "canal.telemetria.realtime",
+        "data": {
+            "telemetry": telemetry,
+            "gpu_name": telemetry.get("gpuName"),
+            "emotion": emotion,
+            "memory_nodes": memory_nodes,
+            "timestamp": time.time(),
+        },
+    }
+
+
 async def periodic_telemetry_loop():
-    """Periodically broadcasts hardware telemetry (RTX 5060 Ti, RAM/VRAM), Plutchik emotion state, and 4D memory nodes over WebSockets."""
+    """Periodically broadcasts hardware telemetry, Plutchik emotion state, and 4D memory nodes over WebSockets."""
     while True:
         try:
             if gateway.active_websockets:
-                # 1. Hardware & System Telemetry
-                telemetry = {}
-                if obtener_telemetria_sistema:
-                    try:
-                        telemetry = obtener_telemetria_sistema()
-                    except Exception:
-                        pass
-
-                # 2. Emotion state
-                emotion = None
-                emotion_path = os.path.join(PROJECT_ROOT, "config", "emotions.json")
-                if os.path.exists(emotion_path):
-                    try:
-                        with open(emotion_path, encoding="utf-8") as f:
-                            emotion = json.load(f)
-                    except Exception:
-                        pass
-
-                # 3. 4D Memory Radar Nodes
-                memory_nodes = []
-                mem_path = os.path.join(PROJECT_ROOT, "memoria_activa")
-                if os.path.exists(mem_path):
-                    try:
-                        db = lancedb.connect(mem_path)
-                        if "memoria_fractal" in db.table_names():
-                            tbl = db.open_table("memoria_fractal")
-                            df = tbl.to_pandas().head(100)
-                            for _, row in df.iterrows():
-                                memory_nodes.append(
-                                    {
-                                        "text": str(row.get("text", "")),
-                                        "x": float(row.get("coordenada_x", 0.0)),
-                                        "y": float(row.get("coordenada_y", 0.0)),
-                                        "z": float(row.get("coordenada_z", 0.0)),
-                                        "w": float(row.get("coordenada_w", 100.0)),
-                                    }
-                                )
-                    except Exception:
-                        pass
-
-                payload = {
-                    "topic": "canal.telemetria.realtime",
-                    "data": {
-                        "telemetry": telemetry,
-                        "gpu_name": "NVIDIA GeForce RTX 5060 Ti",
-                        "emotion": emotion,
-                        "memory_nodes": memory_nodes,
-                        "timestamp": time.time(),
-                    },
-                }
+                payload = await asyncio.to_thread(construir_payload_telemetria)
                 await gateway.broadcast_to_websockets(payload)
         except Exception as e:
             logger.debug(f"Telemetry broadcast error: {e}")

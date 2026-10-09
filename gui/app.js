@@ -171,12 +171,12 @@ function connectWebSocket() {
 // ===========================================================================
 const SERVICE_NAMES = {
     broker: "BROKER", amigdala: "AMÍGDALA", router: "ROUTER",
-    lancedb: "DB", hipocampo: "HIPOCAMPO", vision: "VISIÓN",
+    lancedb: "DB", vision: "VISIÓN",
     contexto: "CONTEXTO", oido: "OÍDO", ejecutor: "EJECUTOR",
     imaginacion: "IMAGINACIÓN", periferico: "PERIFÉRICO", intriga: "INTRIGA"
 };
 const SERVICE_ORDER = [
-    "broker", "amigdala", "router", "lancedb", "hipocampo",
+    "broker", "amigdala", "router", "lancedb",
     "vision", "contexto", "oido", "ejecutor", "imaginacion",
     "periferico", "intriga"
 ];
@@ -410,6 +410,12 @@ function handleBrokerEvent(event) {
             }
         );
 
+    } else if (topic === "canal.sensorial.periferico") {
+        addTerminalLog(`🌐 [Webhook] ${JSON.stringify(data)}`, "system-msg");
+
+    } else if (topic === "canal.sensorial.archivo_recibido") {
+        addTerminalLog(`📎 [Archivo] Recibido: ${data.nombre || data.ruta_local || "sin nombre"}`, "system-msg");
+
     } else if (topic === "canal.ejecucion.resultado") {
         const res = data.resultado || {};
         const detail = res.detail ? ` — ${res.detail}` : "";
@@ -583,8 +589,7 @@ function setupEventListeners() {
                 sendWebSocketMessage("canal.cognitivo.entrada", {
                     "request_id": `manual-${Date.now()}`,
                     "prompt": text,
-                    "esfuerzo_requerido": "esfuerzo_bajo",
-                    "mock": false
+                    "esfuerzo_requerido": "esfuerzo_bajo"
                 });
             }
         });
@@ -1088,17 +1093,9 @@ async function updateMemoryNodes() {
         const resp = await fetch(`http://${HOST}:${API_PORT}/api/memoria`);
         const nodes = await resp.json();
 
-        if (!nodes || nodes.length === 0) {
-            const placeholderNodes = [
-                { id: "core-node", texto: "Núcleo de Memoria Activa", x: 0, y: 0, z: 0 },
-                { id: "sample-1", texto: "Opera GX es un navegador gamer", x: 1.0, y: 0.5, z: -0.2 },
-                { id: "sample-2", texto: "Protocolo de Intriga: anomalía radeon", x: -0.8, y: 1.2, z: 0.6 }
-            ];
-            const placeholderLinks = [
-                { source: "core-node", target: "sample-1" },
-                { source: "core-node", target: "sample-2" }
-            ];
-            graphInstance.graphData({ nodes: placeholderNodes, links: placeholderLinks });
+        // An empty memory renders as an empty graph; never show sample nodes as if they were memories.
+        if (!Array.isArray(nodes) || nodes.length === 0) {
+            graphInstance.graphData({ nodes: [], links: [] });
             return;
         }
 

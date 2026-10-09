@@ -15,7 +15,6 @@ class ILLMGateway(Protocol):
         effort: str,
         prompt: str,
         image_base64: str | None = None,
-        mock: bool = False,
     ) -> tuple[str, str]:
         """
         Executes a prompt against the configured LLM provider.
@@ -28,7 +27,6 @@ class ILLMGateway(Protocol):
         effort: str,
         prompt: str,
         schema: dict[str, Any],
-        mock: bool = False,
     ) -> dict[str, Any]:
         """Generates structured JSON adhering to a specified schema."""
         ...

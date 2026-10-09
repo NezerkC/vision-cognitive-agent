@@ -34,6 +34,26 @@ def test_orchestrator_runs_the_web_gateway():
     assert "Sistema Periférico" in names
 
 
+def test_no_service_consumes_a_topic_nothing_publishes():
+    """Hipocampo waited for canal.sistema.fin_tarea and the web search daemon for canal.web.busqueda; no
+    service publishes either, so both are gone (the pineal daemon summarizes activity, the graph searches)."""
+    orchestrator = BrainstemOrchestrator(use_mock=True, enable_tcp_bridge=False)
+
+    names = [name for name, _ in orchestrator.service_factories(lancedb_mgr=None, lancedb_mock=True)]
+
+    assert "Hipocampo" not in names
+    assert "Web Search" not in names
+
+
+def test_orchestrator_runs_the_voice_loop():
+    """Transcriptions reach the cognitive input and answers come back to the speech service."""
+    orchestrator = BrainstemOrchestrator(use_mock=True, enable_tcp_bridge=False)
+
+    names = [name for name, _ in orchestrator.service_factories(lancedb_mgr=None, lancedb_mock=True)]
+
+    assert "Puente Voz" in names
+
+
 def test_service_factories_do_not_start_anything():
     orchestrator = BrainstemOrchestrator(use_mock=True, enable_tcp_bridge=False)
 

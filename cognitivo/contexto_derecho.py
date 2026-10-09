@@ -18,6 +18,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ContextoDerecho")
 
+# Sent with every new screenshot. Only real errors from other applications or the OS count as anomalies.
+SCREEN_ANALYSIS_PROMPT = (
+    "¿Qué está haciendo el usuario en esta captura? Analiza con suma precisión si la pantalla muestra "
+    "un mensaje de error, advertencia o pop-up de fallo. "
+    "IMPORTANTE: Ignora cualquier error, advertencia o la palabra 'ANOMALIA_DETECTADA' que esté dentro del propio "
+    "dashboard de 'Visión OS', de la 'Consola de Consciencia' o de las alertas del agente. Solo debes detectar e informar "
+    "errores reales de otras aplicaciones o del propio sistema operativo. "
+    "Si (y SOLO si) detectas un error o fallo real externo, debes iniciar tu respuesta obligatoriamente con la "
+    "etiqueta 'ANOMALIA_DETECTADA:' seguida del texto del error. Si la pantalla NO contiene ningún error o fallo externo, "
+    "describe lo que se observa normalmente sin incluir de ninguna manera la etiqueta 'ANOMALIA_DETECTADA' ni hacer referencia a fallos."
+)
+
 
 class ContextoDerecho:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000):
@@ -57,80 +69,62 @@ class ContextoDerecho:
                     except json.JSONDecodeError:
                         continue
 
-                    topic = event.get("topic")
-                    data = event.get("data", {})
-
-                    if topic == "system" and data.get("action") == "purge":
-                        logger.warning("System purge signal received. Resetting pending analyser mappings.")
-                        self.pending_requests.clear()
-                        continue
-
-                    if topic == "canal.sensorial.vision":
-                        img_b64 = data.get("image")
-                        mock = data.get("mock", False)
-                        ts = data.get("timestamp", time.time())
-
-                        if not img_b64:
-                            logger.error("Received vision event with missing image.")
-                            continue
-
-                        # Request context interpretation from Lóbulo Frontal (LLM Router)
-                        request_id = f"derecho-{int(ts)}"
-                        self.pending_requests[request_id] = ts
-                        logger.info(f"New screenshot received. Dispatching request {request_id} to LLM Router.")
-
-                        llm_request = {
-                            "action": "publish",
-                            "topic": "canal.cognitivo.entrada",
-                            "data": {
-                                "request_id": request_id,
-                                "prompt": (
-                                    "¿Qué está haciendo el usuario en esta captura? Analiza con suma precisión si la pantalla muestra "
-                                    "un mensaje de error, advertencia o pop-up de fallo. "
-                                    "IMPORTANTE: Ignora cualquier error, advertencia o la palabra 'ANOMALIA_DETECTADA' que esté dentro del propio "
-                                    "dashboard de 'Visión OS', de la 'Consola de Consciencia' o de las alertas del agente. Solo debes detectar e informar "
-                                    "errores reales de otras aplicaciones o del propio sistema operativo. "
-                                    "Si (y SOLO si) detectas un error o fallo real externo, debes iniciar tu respuesta obligatoriamente con la "
-                                    "etiqueta 'ANOMALIA_DETECTADA:' seguida del texto del error. Si la pantalla NO contiene ningún error o fallo externo, "
-                                    "describe lo que se observa normalmente sin incluir de ninguna manera la etiqueta 'ANOMALIA_DETECTADA' ni hacer referencia a fallos."
-                                ),
-                                "image_base64": img_b64,
-                                "esfuerzo_requerido": "esfuerzo_bajo",
-                                "mock": mock,
-                            },
-                        }
-                        writer.write((json.dumps(llm_request) + "\n").encode("utf-8"))
-                        await writer.drain()
-
-                    elif topic == "canal.cognitivo.respuesta":
-                        request_id = data.get("request_id", "")
-                        if request_id.startswith("derecho-"):
-                            orig_ts = self.pending_requests.pop(request_id, None)
-                            if not orig_ts:
-                                continue
-
-                            response_text = data.get("response", "")
-                            status = data.get("status", "")
-
-                            if status != "success" or not response_text:
-                                logger.error(f"Failed to analyze context for request {request_id}.")
-                                continue
-
-                            # Print the required log output format
-                            logger.info(f"[Hemisferio Derecho] Contexto actualizado: {response_text}")
-
-                            # Publish the interpreted context to canal.sistema.contexto_actual
-                            context_event = {
-                                "action": "publish",
-                                "topic": "canal.sistema.contexto_actual",
-                                "data": {"contexto": response_text, "timestamp": time.time()},
-                            }
-                            writer.write((json.dumps(context_event) + "\n").encode("utf-8"))
-                            await writer.drain()
+                    await self.handle_event(event.get("topic"), event.get("data", {}), writer)
 
             except Exception as e:
                 logger.error(f"Error in HemisferioDerecho loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
+
+    async def handle_event(self, topic: str, data: dict, writer) -> None:
+        """Ask the LLM to analyze each new screenshot and publish the analyzed screen context."""
+        if topic == "system" and data.get("action") == "purge":
+            logger.warning("System purge signal received. Resetting pending analyser mappings.")
+            self.pending_requests.clear()
+        elif topic == "canal.sensorial.vision":
+            await self._request_analysis(data, writer)
+        elif topic == "canal.cognitivo.respuesta":
+            await self._publish_context(data, writer)
+
+    async def _request_analysis(self, data: dict, writer) -> None:
+        img_b64 = data.get("image")
+        if not img_b64:
+            logger.error("Received vision event with missing image.")
+            return
+
+        ts = data.get("timestamp", time.time())
+        request_id = f"derecho-{int(ts)}"
+        self.pending_requests[request_id] = ts
+        logger.info(f"New screenshot received. Dispatching request {request_id} to LLM Router.")
+        await self._publish(
+            writer,
+            "canal.cognitivo.entrada",
+            {
+                "request_id": request_id,
+                "prompt": SCREEN_ANALYSIS_PROMPT,
+                "image_base64": img_b64,
+                "esfuerzo_requerido": "esfuerzo_bajo",
+            },
+        )
+
+    async def _publish_context(self, data: dict, writer) -> None:
+        request_id = data.get("request_id") or ""
+        if not request_id.startswith("derecho-") or self.pending_requests.pop(request_id, None) is None:
+            return
+
+        response_text = data.get("response", "")
+        if data.get("status") != "success" or not response_text:
+            logger.error(f"Failed to analyze context for request {request_id}.")
+            return
+
+        logger.info(f"[Hemisferio Derecho] Contexto actualizado: {response_text}")
+        await self._publish(
+            writer, "canal.sistema.contexto_actual", {"contexto": response_text, "timestamp": time.time()}
+        )
+
+    @staticmethod
+    async def _publish(writer, topic: str, data: dict) -> None:
+        writer.write((json.dumps({"action": "publish", "topic": topic, "data": data}) + "\n").encode("utf-8"))
+        await writer.drain()
 
     async def scan_host_clis_loop(self, writer):
         # Allow some time for startup to finish

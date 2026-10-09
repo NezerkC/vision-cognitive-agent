@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useWebSocketTelemetry } from '../../stores/useWebSocketTelemetry';
+import { formatMetric } from '../../lib/format';
 import Tooltip from '../UI/Tooltip';
 import FilePickerModal from '../UI/FilePickerModal';
 import { Folder, Play, Square, HardDrive, Cpu, Activity, Zap, Save, Check, Sliders, Thermometer, Layers, Sparkles, Search } from 'lucide-react';
@@ -84,21 +86,8 @@ export default function LlamaCppPanel() {
     return () => clearInterval(interval);
   }, [settings]);
 
-  const telemetry = settings.systemTelemetry || {
-    cpuPercent: 15,
-    ramUsedGb: 14.2,
-    ramTotalGb: 32.0,
-    ramPercent: 44,
-    vramUsedGb: 12.8,
-    vramTotalGb: 16.3,
-    vramPercent: 78,
-    gpuTemp: 49,
-    cpuTemp: 54,
-    disks: [
-      { name: 'C: (SSD NVMe)', freeGb: 240, totalGb: 1000, percent: 76 },
-      { name: 'D: (HDD)', freeGb: 850, totalGb: 2000, percent: 57.5 }
-    ]
-  };
+  // Live readings from the gateway WebSocket; dashes until they arrive or when a sensor is missing.
+  const telemetry = useWebSocketTelemetry((state) => state.telemetry);
 
   const isRunning = settings.llamacppServerStatus === 'running';
   const isLoading = settings.llamacppServerStatus === 'loading';
@@ -333,7 +322,7 @@ export default function LlamaCppPanel() {
           </h4>
           <span className="text-[10px] text-[#8a8a8a] flex items-center gap-1 font-mono">
             <Thermometer size={12} className="text-orange-400" /> 
-            GPU: <strong className="text-white">{telemetry.gpuTemp}°C</strong> | CPU: <strong className="text-white">{telemetry.cpuTemp}°C</strong>
+            GPU: <strong className="text-white">{formatMetric(telemetry.gpuTemp, 0, '°C')}</strong> | CPU: <strong className="text-white">{formatMetric(telemetry.cpuTemp, 0, '°C')}</strong>
           </span>
         </div>
 
@@ -341,11 +330,11 @@ export default function LlamaCppPanel() {
           {/* VRAM GPU */}
           <div className="bg-[#1e1e1e] p-3 rounded border border-[#3c3c3c] space-y-1.5">
             <div className="flex justify-between text-[11px]">
-              <span className="text-[#8a8a8a] font-medium flex items-center gap-1"><Zap size={12} className="text-yellow-400" /> VRAM GPU (RTX 5060 Ti)</span>
-              <span className="font-mono text-white">{telemetry.vramUsedGb} / {telemetry.vramTotalGb} GB</span>
+              <span className="text-[#8a8a8a] font-medium flex items-center gap-1"><Zap size={12} className="text-yellow-400" /> VRAM {telemetry.gpuName ? `(${telemetry.gpuName})` : '(sin GPU NVIDIA detectada)'}</span>
+              <span className="font-mono text-white">{formatMetric(telemetry.vramUsedGb)} / {formatMetric(telemetry.vramTotalGb, 1, ' GB')}</span>
             </div>
             <div className="w-full bg-[#3c3c3c] rounded-full h-2 overflow-hidden">
-              <div className="bg-[#a78bfa] h-full transition-all duration-500" style={{ width: `${telemetry.vramPercent}%` }}></div>
+              <div className="bg-[#a78bfa] h-full transition-all duration-500" style={{ width: `${telemetry.vramPercent ?? 0}%` }}></div>
             </div>
           </div>
 
@@ -353,10 +342,10 @@ export default function LlamaCppPanel() {
           <div className="bg-[#1e1e1e] p-3 rounded border border-[#3c3c3c] space-y-1.5">
             <div className="flex justify-between text-[11px]">
               <span className="text-[#8a8a8a] font-medium flex items-center gap-1"><Cpu size={12} className="text-blue-400" /> RAM Sistema</span>
-              <span className="font-mono text-white">{telemetry.ramUsedGb} / {telemetry.ramTotalGb} GB</span>
+              <span className="font-mono text-white">{formatMetric(telemetry.ramUsedGb)} / {formatMetric(telemetry.ramTotalGb, 1, ' GB')}</span>
             </div>
             <div className="w-full bg-[#3c3c3c] rounded-full h-2 overflow-hidden">
-              <div className="bg-blue-500 h-full transition-all duration-500" style={{ width: `${telemetry.ramPercent}%` }}></div>
+              <div className="bg-blue-500 h-full transition-all duration-500" style={{ width: `${telemetry.ramPercent ?? 0}%` }}></div>
             </div>
           </div>
 
@@ -364,10 +353,10 @@ export default function LlamaCppPanel() {
           <div className="bg-[#1e1e1e] p-3 rounded border border-[#3c3c3c] space-y-1.5">
             <div className="flex justify-between text-[11px]">
               <span className="text-[#8a8a8a] font-medium flex items-center gap-1"><Activity size={12} className="text-emerald-400" /> Uso de Procesador</span>
-              <span className="font-mono text-white">{telemetry.cpuPercent}%</span>
+              <span className="font-mono text-white">{formatMetric(telemetry.cpuPercent, 1, '%')}</span>
             </div>
             <div className="w-full bg-[#3c3c3c] rounded-full h-2 overflow-hidden">
-              <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${telemetry.cpuPercent}%` }}></div>
+              <div className="bg-emerald-500 h-full transition-all duration-500" style={{ width: `${telemetry.cpuPercent ?? 0}%` }}></div>
             </div>
           </div>
         </div>

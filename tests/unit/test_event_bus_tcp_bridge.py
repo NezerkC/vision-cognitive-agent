@@ -44,6 +44,36 @@ async def test_json_client_publish_reaches_the_bus(bridge_and_received):
 
 
 @pytest.mark.asyncio
+async def test_tcp_subscriber_receives_events_published_over_tcp():
+    """The default runtime's TCP daemons subscribe through the bridge and receive what other clients publish."""
+    bus = AsyncInMemoryEventBus()
+    bridge = TCPEventBusBridge(bus, host="127.0.0.1", port=0)
+    await bridge.start()
+    port = bridge.server.sockets[0].getsockname()[1]
+    sub_reader, sub_writer = await asyncio.open_connection("127.0.0.1", port)
+    _, pub_writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        sub_writer.write((json.dumps({"action": "subscribe", "topics": ["heartbeat"]}) + "\n").encode())
+        await sub_writer.drain()
+        # The bridge registers the subscription asynchronously; publish only once it exists.
+        async with asyncio.timeout(2):
+            while not bridge._client_subscriptions:
+                await asyncio.sleep(0.01)
+
+        heartbeat = {"action": "publish", "topic": "heartbeat", "data": {"status": "alive"}}
+        pub_writer.write((json.dumps(heartbeat) + "\n").encode())
+        await pub_writer.drain()
+
+        line = await asyncio.wait_for(sub_reader.readline(), 2)
+        assert json.loads(line) == {"topic": "heartbeat", "data": {"status": "alive"}}
+    finally:
+        for writer in (sub_writer, pub_writer):
+            writer.close()
+        await bridge.stop()
+        await bus.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_http_request_from_a_browser_cannot_smuggle_events(bridge_and_received):
     """A web page can POST text/plain to 127.0.0.1:5000; its JSON body must not become an event."""
     port, received = bridge_and_received

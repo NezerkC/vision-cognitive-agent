@@ -38,60 +38,132 @@ def emotion_where_clause(emotion_filter: str | None) -> str | None:
     return f"metadata LIKE '%{emotion_filter}%'"
 
 
+class EmbedderUnavailableError(RuntimeError):
+    """The embedding model could not be loaded."""
+
+
+class EmbedderMismatchError(RuntimeError):
+    """A vector store holds vectors from a different (or unrecorded) embedder than the current one."""
+
+
+MOCK_EMBEDDER_ID = "mock-hash"
+EMBEDDER_RECORD = "embedder.json"
+
+
 class BGEM3Embedder:
+    """BGE-M3 sentence embeddings (1024 dimensions).
+
+    force_mock=True returns deterministic bag-of-words hash vectors for tests and explicit mock runs. Those are
+    recorded as MOCK_EMBEDDER_ID, so check_embedder_compatibility() never lets them mix with real vectors.
+    """
+
+    dimension = 1024
+
     def __init__(self, model_name="BAAI/bge-m3", force_mock=False):
         self.force_mock = force_mock
+        self.model_id = MOCK_EMBEDDER_ID if force_mock else model_name
         self.model = None
         self.tokenizer = None
-        if not force_mock:
-            try:
-                logger.info(f"Loading local BGE-M3 embedding model: {model_name}...")
-                # We disable model download warnings and load tokenizer and model
-                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-                self.model = AutoModel.from_pretrained(model_name)
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
-                self.model.to(self.device)
-                logger.info(f"BGE-M3 loaded on device: {self.device}")
-            except Exception as e:
-                logger.warning(
-                    f"Could not load BGE-M3 model locally: {e}. Falling back to deterministic mock embedding."
-                )
-                self.force_mock = True
+        self.device = "cpu"
+        if force_mock:
+            return
+        try:
+            logger.info(f"Loading local BGE-M3 embedding model: {model_name}...")
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name)
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model.to(self.device)
+            logger.info(f"BGE-M3 loaded on device: {self.device}")
+        except Exception as e:
+            raise EmbedderUnavailableError(
+                f"Could not load the embedding model {model_name}: {e}. It downloads from Hugging Face on first use; "
+                "check the connection and disk space, or set modos_mock.lancedb_manager: true in "
+                "config/arranque.yaml to run with mock vectors."
+            ) from e
 
     def embed_query(self, text: str) -> list[float]:
-        if self.force_mock or not self.model:
-            import hashlib
-            import re
+        if self.force_mock:
+            return self._hash_vector(text)
+        inputs = self.tokenizer(text, padding=True, truncation=True, max_length=8192, return_tensors="pt")
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        # BGE-M3: extract normalized CLS token embedding
+        cls_embeddings = outputs.last_hidden_state[:, 0, :]
+        normalized_embeddings = torch.nn.functional.normalize(cls_embeddings, p=2, dim=1)
+        return normalized_embeddings[0].tolist()
 
-            words = re.findall(r"\w+", text.lower())
-            vector = [0.0] * 1024
-            if not words:
-                return vector
-            for word in words:
-                h = int(hashlib.md5(word.encode("utf-8")).hexdigest(), 16)
-                idx = h % 1024
-                vector[idx] += 1.0
-            norm = sum(x * x for x in vector) ** 0.5
-            if norm > 0:
-                vector = [x / norm for x in vector]
-            return vector
+    def _hash_vector(self, text: str) -> list[float]:
+        import hashlib
 
-        try:
-            inputs = self.tokenizer(text, padding=True, truncation=True, max_length=8192, return_tensors="pt")
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-            # BGE-M3: extract normalized CLS token embedding
-            cls_embeddings = outputs.last_hidden_state[:, 0, :]
-            normalized_embeddings = torch.nn.functional.normalize(cls_embeddings, p=2, dim=1)
-            return normalized_embeddings[0].tolist()
-        except Exception as e:
-            logger.error(f"Error computing BGE-M3 embedding: {e}. Falling back to mock vector.")
-            # Fallback to mock on runtime error
-            import hashlib
+        vector = [0.0] * self.dimension
+        for word in re.findall(r"\w+", text.lower()):
+            vector[int(hashlib.md5(word.encode("utf-8")).hexdigest(), 16) % self.dimension] += 1.0
+        norm = sum(x * x for x in vector) ** 0.5
+        return [x / norm for x in vector] if norm > 0 else vector
 
-            h = hashlib.sha256(text.encode("utf-8")).digest()
-            return [float(((h[i % len(h)] + i) % 256) / 255.0 * 2.0 - 1.0) for i in range(1024)]
+
+def _embedder_record(embedder) -> dict:
+    return {"model_id": embedder.model_id, "dimension": embedder.dimension}
+
+
+def _write_embedder_record(db_path: str, embedder) -> None:
+    os.makedirs(db_path, exist_ok=True)
+    with open(os.path.join(db_path, EMBEDDER_RECORD), "w", encoding="utf-8") as f:
+        json.dump(_embedder_record(embedder), f)
+
+
+def check_embedder_compatibility(db_path: str, embedder, has_rows: bool) -> None:
+    """Refuse to mix vector spaces: the store must have been written by the current embedder.
+
+    A new store records the embedder in embedder.json. A store with rows but no record predates this check and
+    may hold the hash vectors older versions fell back to silently, so it must be re-indexed first.
+    """
+    current = _embedder_record(embedder)
+    path = os.path.join(db_path, EMBEDDER_RECORD)
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            stored = json.load(f)
+        if stored != current:
+            raise EmbedderMismatchError(
+                f"The vectors in '{db_path}' were made with {stored.get('model_id')} ({stored.get('dimension')} "
+                f"dims) but the current embedder is {current['model_id']} ({current['dimension']} dims). Run "
+                f"`python -m memoria.reindex {db_path}` to recompute them, or switch back to the previous embedder."
+            )
+        return
+    if has_rows:
+        raise EmbedderMismatchError(
+            f"'{db_path}' holds vectors from an unrecorded embedder (older versions silently fell back to hash "
+            f"vectors). Run `python -m memoria.reindex {db_path}` to recompute them with {current['model_id']}."
+        )
+    _write_embedder_record(db_path, embedder)
+
+
+def reindex_store(db_path: str, embedder) -> int:
+    """Recompute the vector of every row in every table from its text, then record the embedder.
+
+    Returns the number of rows re-embedded. Full-text indexes on `text` are rebuilt because overwriting drops them.
+    """
+    db = lancedb.connect(db_path)
+    total = 0
+    for name in db.table_names():
+        table = db.open_table(name)
+        schema = table.schema
+        if "vector" not in schema.names or "text" not in schema.names:
+            continue
+        rows = table.to_arrow().to_pylist()
+        for row in rows:
+            row["vector"] = embedder.embed_query(row["text"] or "")
+        db.create_table(name, data=rows, schema=schema, mode="overwrite")
+        if rows:
+            try:
+                db.open_table(name).create_fts_index("text", replace=True)
+            except Exception as e:
+                logger.warning(f"Could not rebuild the full-text index on '{name}': {e}")
+        total += len(rows)
+        logger.info(f"Re-embedded {len(rows)} rows in '{db_path}/{name}' with {embedder.model_id}.")
+    _write_embedder_record(db_path, embedder)
+    return total
 
 
 class LanceDBManager:
@@ -121,7 +193,7 @@ class LanceDBManager:
             self.db_path = "memoria_activa"
             self.cold_db_path = "memoria_historica"
 
-    def init_db(self, mock_embedder=False):
+    def init_db(self, mock_embedder=False, embedder=None):
         try:
             os.makedirs(self.db_path, exist_ok=True)
             os.makedirs(self.cold_db_path, exist_ok=True)
@@ -130,12 +202,12 @@ class LanceDBManager:
             self.cold_db = lancedb.connect(self.cold_db_path)
 
             # Setup BGE-M3 Embedding Client
-            self.embedder = BGEM3Embedder(force_mock=mock_embedder)
+            self.embedder = embedder or BGEM3Embedder(force_mock=mock_embedder)
 
             # PyArrow schema for our 4D spatial index matrix (Euclidean + Cosine)
             schema = pa.schema(
                 [
-                    ("vector", pa.list_(pa.float32(), 1024)),  # BGE-M3 outputs 1024 dimensions
+                    ("vector", pa.list_(pa.float32(), self.embedder.dimension)),
                     ("text", pa.string()),
                     ("coordenada_x", pa.float32()),
                     ("coordenada_y", pa.float32()),
@@ -172,6 +244,9 @@ class LanceDBManager:
                 except Exception as e:
                     logger.warning(f"Could not create FTS index on Cold table: {e}")
 
+            check_embedder_compatibility(self.db_path, self.embedder, has_rows=self.table.count_rows() > 0)
+            check_embedder_compatibility(self.cold_db_path, self.embedder, has_rows=self.cold_table.count_rows() > 0)
+
         except Exception as e:
             logger.critical(f"Failed to initialize database: {e}")
             raise e
@@ -179,14 +254,14 @@ class LanceDBManager:
     def build_hot_cold_indices(self):
         """Builds HNSW index for Hot tier and PQ index for Cold tier."""
         try:
-            if self.table and self.table.count_rows() >= 256:
+            if self.table is not None and self.table.count_rows() >= 256:
                 try:
                     self.table.create_index(metric="cosine", num_partitions=16, num_sub_vectors=64, index_type="IVF_PQ")
                     logger.info("Created HNSW/IVF index on Hot table.")
                 except Exception as e:
                     logger.debug(f"Hot table index creation notice: {e}")
 
-            if self.cold_table and self.cold_table.count_rows() >= 256:
+            if self.cold_table is not None and self.cold_table.count_rows() >= 256:
                 try:
                     self.cold_table.create_index(
                         metric="cosine", num_partitions=16, num_sub_vectors=32, index_type="IVF_PQ"
@@ -241,7 +316,8 @@ class LanceDBManager:
                 logger.error(f"Error in LanceDB loop: {e}. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
 
-    async def handle_guardar(self, writer, data: dict):
+    async def handle_guardar(self, writer, data: dict) -> bool:
+        """Chunk, embed and store a memory in the hot or cold tier. Returns whether anything was saved."""
         try:
             text = data.get("text", "")
             meta = data.get("metadata", {})
@@ -262,7 +338,7 @@ class LanceDBManager:
 
             if not text:
                 logger.warning("Attempted to save empty text. Skipped.")
-                return
+                return False
 
             # Chunk document using LangChain RecursiveCharacterTextSplitter
             chunks = self.text_splitter.split_text(text)
@@ -286,14 +362,19 @@ class LanceDBManager:
                 )
 
             # Save rows to designated LanceDB tier table
-            target_table = self.table if tier == "hot" else (self.cold_table or self.table)
+            # An empty LanceDB table is falsy (len 0), so test for None explicitly.
+            target_table = self.table if tier == "hot" or self.cold_table is None else self.cold_table
+            if target_table is None:
+                raise RuntimeError("Memory tables are not initialized.")
             target_table.add(rows)
             logger.info(f"Successfully saved {len(chunks)} chunks to {tier.upper()} table.")
+            return True
 
         except Exception as e:
             logger.error(f"Database error during guardar operation: {e}")
             if writer:
                 await self.publish_error(writer, f"Guardar failed: {str(e)}")
+            return False
 
     async def buscar_hibrido_rrf_impl(
         self,

@@ -77,7 +77,6 @@ class Amigdala:
         prompt = data.get("prompt", "")
         effort = data.get("esfuerzo_requerido", "esfuerzo_bajo")
         image_base64 = data.get("image_base64")
-        mock = data.get("mock", False)
 
         if not request_id:
             logger.error("Missing request_id in entrada event.")
@@ -102,7 +101,6 @@ class Amigdala:
                 "prompt": prompt,
                 "esfuerzo_requerido": effort,
                 "image_base64": image_base64,
-                "mock": mock,
             }
             await publish_fn("canal.cognitivo.peticion", forward_event)
 

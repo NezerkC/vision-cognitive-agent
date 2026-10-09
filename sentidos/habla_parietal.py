@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import json
 import logging
 import os
@@ -16,6 +17,10 @@ logging.basicConfig(
 logger = logging.getLogger("HablaParietal")
 
 
+def module_available(name: str) -> bool:
+    return importlib.util.find_spec(name) is not None
+
+
 class HablaParietal:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000, force_mock: bool = False):
         self.host = host
@@ -26,6 +31,14 @@ class HablaParietal:
         self.tts_engine = "edge-tts"
 
         self.load_config()
+
+        # Why speech cannot run; None when at least one TTS engine is installed. Never a silent mock.
+        self.unavailable_reason: str | None = None
+        if not self.force_mock and not (module_available("edge_tts") or module_available("pyttsx3")):
+            self.unavailable_reason = (
+                "no hay motor de voz: instala edge-tts o pyttsx3 (`pip install edge-tts pyttsx3`)."
+            )
+            logger.error(f"Habla Parietal no puede hablar: {self.unavailable_reason}")
 
     def load_config(self):
         try:
@@ -154,11 +167,14 @@ class HablaParietal:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self.executor, self.speak_pyttsx3_sync, text, device_index)
 
-    async def speak(self, text: str):
-        """Main speaking logic (routes to edge-tts or pyttsx3)."""
+    async def speak(self, text: str) -> bool:
+        """Main speaking logic (routes to edge-tts or pyttsx3). Returns False when nothing was spoken."""
         if self.force_mock:
             logger.info(f"[🗣️ HABLA PARIETAL - MOCK] Sintetizando voz: '{text}'")
-            return
+            return False
+        if self.unavailable_reason:
+            logger.error(f"No se pudo decir '{text}': {self.unavailable_reason}")
+            return False
 
         logger.info(f"Synthesizing voice: '{text}' using {self.tts_engine}")
         if self.tts_engine == "edge-tts":
@@ -166,6 +182,7 @@ class HablaParietal:
         else:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(self.executor, self.speak_pyttsx3_sync, text, self.output_device_index)
+        return True
 
     async def run(self):
         while True:
@@ -180,6 +197,15 @@ class HablaParietal:
                 )
                 writer.write(subscribe_msg.encode("utf-8"))
                 await writer.drain()
+
+                if self.unavailable_reason:
+                    announcement = {
+                        "action": "publish",
+                        "topic": "canal.sistema.anuncios",
+                        "data": {"mensaje": f"[HABLA] No puedo hablar: {self.unavailable_reason}"},
+                    }
+                    writer.write((json.dumps(announcement) + "\n").encode("utf-8"))
+                    await writer.drain()
 
                 while True:
                     line = await reader.readline()
@@ -207,19 +233,10 @@ class HablaParietal:
                         elif action == "reload_arranque":
                             # We can reload mock mode from config if it changed
                             try:
-                                arr_path = os.path.join(
-                                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                    "config",
-                                    "arranque.yaml",
-                                )
-                                if os.path.exists(arr_path):
-                                    with open(arr_path, encoding="utf-8") as f:
-                                        import yaml
+                                from core.arranque import read_mock_flag
 
-                                        cfg = yaml.safe_load(f)
-                                    mock_flag = cfg.get("modos_mock", {}).get("habla_parietal", True)
-                                    self.force_mock = mock_flag or ("--mock" in sys.argv)
-                                    logger.info(f"Updated mock mode: {self.force_mock}")
+                                self.force_mock = read_mock_flag("habla_parietal") or ("--mock" in sys.argv)
+                                logger.info(f"Updated mock mode: {self.force_mock}")
                             except Exception as ex:
                                 logger.warning(f"Failed to reload mock settings: {ex}")
 
@@ -229,21 +246,9 @@ class HablaParietal:
 
 
 if __name__ == "__main__":
-    import yaml
+    from core.arranque import read_mock_flag
 
-    mock_flag = "--mock" in sys.argv
-
-    if not mock_flag:
-        try:
-            arr_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "arranque.yaml"
-            )
-            if os.path.exists(arr_path):
-                with open(arr_path, encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f)
-                mock_flag = cfg.get("modos_mock", {}).get("habla_parietal", True)
-        except Exception:
-            pass
+    mock_flag = "--mock" in sys.argv or read_mock_flag("habla_parietal")
 
     habla = HablaParietal(force_mock=mock_flag)
     try:

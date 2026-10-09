@@ -77,7 +77,15 @@ implementations in `core/adapters/`.
 - `.env` is loaded by the watchdog for every service; variables already set in your shell take precedence.
 - Keys saved from the HUD settings go to `.env` and apply to the other services on their next restart.
 - `config/llm_router.yaml` picks the routing strategy and models; `api_key` accepts `${VAR}` or `VAR` references.
-- `config/arranque.yaml` holds the mock switches; `config/memory_tiering.yaml` the hot/cold memory stores.
+- Embeddings come from BGE-M3 (downloaded from Hugging Face on first use). If it cannot load, the memory service
+  stops with an explicit error instead of falling back to fake vectors. Each vector store records its embedder in
+  `embedder.json` and refuses vectors from another one; after upgrading, or after switching embedders, run
+  `python -m memoria.reindex` once to recompute the stored vectors from their text.
+- Screenshots and uploaded images are analysed by the vision model in `config/hardware_interfaces.json`
+  (`vision_activa.modelo_vision`, a LiteLLM id; `local/<name>` means an Ollama model such as `local/qwen3-vl`). Without
+  one, image requests fail instead of going to a text-only model.
+- `config/arranque.yaml` holds the mock switches. Every service runs for real unless its flag is `true` or `--mock`
+  is passed; a missing key means real mode. `config/memory_tiering.yaml` holds the hot/cold memory stores.
 
 ## Development
 
@@ -127,6 +135,8 @@ Folders are named after the brain region each part plays:
   and must stay inside it, reads are capped at 10 MB, and every PowerShell command needs confirmation in a native
   dialog that script in the webview cannot skip. Each command is granted explicitly in
   `vision_studio/src-tauri/capabilities/default.json`, and the app ships a Content Security Policy.
+- When the curiosity protocol spots an error on screen it asks first (HUD ticket or a spoken "sí"/"no") before
+  sending the error text to web search, and it saves only real search results with their URLs.
 - Auto-training never writes code into the package: tool code the LLM writes for a detected CLI is kept only if it
   parses and defines a `@tool` function, and it goes to `memoria_activa/skills_propuestas/<cli>_tool.py.txt` for a
   human to review before moving it into `cognitivo/skills/`.

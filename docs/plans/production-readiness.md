@@ -3,22 +3,23 @@
 Goal: make Vision OS and Vision Studio fully functional with no fake behavior in production code paths.
 Source: read-only audits of 2026-10-06 (backend mocks, notebooks/RAG, Vision Studio file manager).
 
-This file is the single source of truth for the work loop. Each loop iteration completes ONE task.
+This file is the single source of truth for the work loop. Since 2026-10-06 phases 1–4 run as parallel streams (ultracode): one stream per phase, each in its own worktree and branch, one task per agent run, tasks in order within a stream.
 
 ## Environment
 
-- Worktree: `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.claude/worktrees/production-readiness`
-- Python: `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.venv/Scripts/python.exe` (run it from the worktree root so the worktree code is imported)
-- Frontend: `vision_studio/` (run `npm ci` once in the worktree before the first frontend task)
-- Branches are chained; each phase branches from the previous phase branch:
+- Worktrees live under `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.claude/worktrees/` (table below).
+- Python: `D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.venv/Scripts/python.exe`, shared by every stream (run it from the worktree root so the worktree code is imported).
+- Frontend: `vision_studio/` (run `npm ci` once in a worktree before its first frontend task).
+- Rust: reuse the phase 1 build cache with `CARGO_TARGET_DIR=D:/projects/02_Proyectos_Dev/vision-cognitive-agent/.claude/worktrees/production-readiness/vision_studio/src-tauri/target`.
+- Branches are chained for review; phases 2–4 started from the phase 1 branch at the same commit and are developed in parallel:
 
-| Phase | Branch | PR base |
-|---|---|---|
-| 0 | `fix/security-hardening` | `main` |
-| 1 | `fix/remove-production-mocks` | `fix/security-hardening` |
-| 2 | `feat/notebooks-production` | `fix/remove-production-mocks` |
-| 3 | `feat/studio-file-manager` | `feat/notebooks-production` |
-| 4 | `feat/imagination-dreams` | `feat/studio-file-manager` |
+| Phase | Branch | Worktree | PR base |
+|---|---|---|---|
+| 0 | `fix/security-hardening` | — | `main` |
+| 1 | `fix/remove-production-mocks` | `production-readiness` | `fix/security-hardening` |
+| 2 | `feat/notebooks-production` | `notebooks` | `fix/remove-production-mocks` |
+| 3 | `feat/studio-file-manager` | `file-manager` | `feat/notebooks-production` |
+| 4 | `feat/imagination-dreams` | `imagination` | `feat/studio-file-manager` |
 
 ## Rules
 
@@ -29,8 +30,9 @@ This file is the single source of truth for the work loop. Each loop iteration c
 5. Push with `git push -u origin <branch>`.
 6. Never: merge PRs, push to `main`, force-push, use `--no-verify`, delete data outside the repository, weaken security checks, download files larger than 100 MB, or add credentials.
 7. If a task needs a human (a decision, a credential, a large model download, hardware validation), mark it `[!]`, record the reason under Blockers, and continue with the next task.
-8. When every task in a phase is `[x]` or `[!]`: push, open the phase PR (not draft) with `gh pr create --base <PR base>`, record the URL under Log, and create the next phase branch from the current one.
+8. When every task in a phase is `[x]` or `[!]`: merge the PR base branch into the phase branch (a merge commit, never a rebase), push, open the phase PR (not draft) with `gh pr create --base <PR base>`, and record the URL under that phase's Log section.
 9. When every phase is finished: write a final summary under Log and stop the loop.
+10. Parallel streams: a task only touches its own phase's checkboxes, Blockers section and Log section, so branches merge without conflicts. Never edit another phase's lines. Run every command against your own worktree (absolute paths or `git -C`). Another stream may be running tests or `pip` at the same time: if `pip` fails on a locked file, wait and retry.
 
 ## Defaulted decisions
 
@@ -50,19 +52,20 @@ This file is the single source of truth for the work loop. Each loop iteration c
 
 ## Phase 1: Remove production mocks
 
-- [ ] 1.1 Missing `modos_mock` keys mean real mode (`core/orchestrator.py:84`, `core/main.py:106`, daemon reload code in `sentidos/oido_parietal.py:212`, `sentidos/habla_parietal.py:220`, `sentidos/vision_parietal.py:204`, `cognitivo/ejecutor_izquierdo.py:270`). Set every `config/arranque.yaml` mock flag to false.
-- [ ] 1.2 Embeddings: remove the MD5/SHA fallbacks in `memoria/lancedb_manager.py` (55-94). Raise a clear error when the model cannot load. Record embedder id and dimension.
-- [ ] 1.3 `cognitivo/llm_router.py`: errors raise and publish a failed status (351, 394-396). Remove the `mock: true` canned answers (124-128; `cognitivo/orquestador_graph.py` 118-124, 165-169, 219-238, 300-301).
-- [ ] 1.4 `cognitivo/llm_router.py`: forward `image_base64` as a multimodal message to the model set in `modelo_vision` (179-186, 316-327).
-- [ ] 1.5 Protocolo de Intriga: remove the fake-solution fallback (35-43, 60-65). Implement or remove the transcription approval flow (151-155, `gui/app.js` 364-378).
-- [ ] 1.6 Ejecutor: simulated UI and shell actions return an error, not success (`cognitivo/ejecutor_izquierdo.py` 88-90, 120-122).
-- [ ] 1.7 Senses: a vision capture error publishes an error instead of a blue image, and `mss` re-initializes on reload (`sentidos/vision_parietal.py` 57-63, 204-205, 230-232). Oido and Habla fail loudly when dependencies are missing. A failed transcription does not save a placeholder (`sentidos/sistema_periferico.py` 836-841). `sentidos/calibrador_audio.py` drops the random RMS values.
-- [ ] 1.8 Telemetry: real NVML or `nvidia-smi` values, or null. No hardcoded GPU name or temperatures (`sentidos/sistema_periferico.py:1241`, `gestor_llamacpp.py` 144-147, 174).
-- [ ] 1.9 Pineal daemon: summarize real activity through `LLMRouter` instead of fixed text (`daemons/pineal_daemon.py` 103-106). Consolidation moves rows instead of duplicating them (65-96).
-- [ ] 1.10 `/api/memoria` uses the real schema columns (`sentidos/sistema_periferico.py` 386-392). Remove the hardcoded sample nodes in `gui/app.js` (1092-1101). Fix the `temperatura_z` schema mismatch in `memoria/cargador_datasets.py` (84, 90).
-- [ ] 1.11 `cognitivo/memoria.py` propagates save errors (92-97). `/api/health` works in in-process mode (`sentidos/sistema_periferico.py` 293-298).
-- [ ] 1.12 Move `core/test_*.py` to `tests/integration/` (skipped without a running broker) or delete the ones already covered by unit tests.
-- [ ] 1.13 Topics without a production producer: wire them or remove their consumers (`canal.imaginacion.peticion`, `canal.web.busqueda`, `canal.sistema.fin_tarea`, `canal.ejecucion.accion`, `canal.sensorial.audio.hablar`). Forward voice transcriptions to `canal.cognitivo.entrada`.
+- [x] 1.1 Missing `modos_mock` keys mean real mode (`core/orchestrator.py:84`, `core/main.py:106`, daemon reload code in `sentidos/oido_parietal.py:212`, `sentidos/habla_parietal.py:220`, `sentidos/vision_parietal.py:204`, `cognitivo/ejecutor_izquierdo.py:270`). Set every `config/arranque.yaml` mock flag to false.
+- [x] 1.2 Embeddings: remove the MD5/SHA fallbacks in `memoria/lancedb_manager.py` (55-94). Raise a clear error when the model cannot load. Record embedder id and dimension.
+- [x] 1.3 `cognitivo/llm_router.py`: errors raise and publish a failed status (351, 394-396). Remove the `mock: true` canned answers (124-128; `cognitivo/orquestador_graph.py` 118-124, 165-169, 219-238, 300-301).
+- [x] 1.4 `cognitivo/llm_router.py`: forward `image_base64` as a multimodal message to the model set in `modelo_vision` (179-186, 316-327).
+- [x] 1.5 Protocolo de Intriga: remove the fake-solution fallback (35-43, 60-65). Implement or remove the transcription approval flow (151-155, `gui/app.js` 364-378).
+- [x] 1.6 Ejecutor: simulated UI and shell actions return an error, not success (`cognitivo/ejecutor_izquierdo.py` 88-90, 120-122).
+- [x] 1.7 Senses: a vision capture error publishes an error instead of a blue image, and `mss` re-initializes on reload (`sentidos/vision_parietal.py` 57-63, 204-205, 230-232). Oido and Habla fail loudly when dependencies are missing. A failed transcription does not save a placeholder (`sentidos/sistema_periferico.py` 836-841). `sentidos/calibrador_audio.py` drops the random RMS values.
+- [x] 1.8 Telemetry: real NVML or `nvidia-smi` values, or null. No hardcoded GPU name or temperatures (`sentidos/sistema_periferico.py:1241`, `gestor_llamacpp.py` 144-147, 174).
+- [x] 1.9 Pineal daemon: summarize real activity through `LLMRouter` instead of fixed text (`daemons/pineal_daemon.py` 103-106). Consolidation moves rows instead of duplicating them (65-96).
+- [x] 1.10 `/api/memoria` uses the real schema columns (`sentidos/sistema_periferico.py` 386-392). Remove the hardcoded sample nodes in `gui/app.js` (1092-1101). Fix the `temperatura_z` schema mismatch in `memoria/cargador_datasets.py` (84, 90).
+- [x] 1.11 `cognitivo/memoria.py` propagates save errors (92-97). `/api/health` works in in-process mode (`sentidos/sistema_periferico.py` 293-298).
+- [x] 1.12 Move `core/test_*.py` to `tests/integration/` (skipped without a running broker) or delete the ones already covered by unit tests.
+- [x] 1.13 Topics without a production producer: wire them or remove their consumers (`canal.imaginacion.peticion`, `canal.web.busqueda`, `canal.sistema.fin_tarea`, `canal.ejecucion.accion`, `canal.sensorial.audio.hablar`). Forward voice transcriptions to `canal.cognitivo.entrada`. The producer of `canal.imaginacion.peticion` is task 4.5, so leave that topic to phase 4. Also: topics published without a consumer (`canal.sensorial.periferico` from `/webhook/externo`, `canal.sensorial.archivo_recibido` from `/upload_sensorial`); `memoria/hipocampo.py` (~148) still publishes the legacy `temperatura_z` field instead of `coordenada_w`; `ProtocoloIntriga.is_mock` is never used; `core/amigdala.py` (~80, ~105) and `memoria/hipocampo.py` (~76, ~113) still forward the dead `mock` field, and `core/ports/llm_gateway.py` still declares `mock` parameters.
+- [ ] 1.14 Import hygiene and leftovers: remove the `sys.path` hacks (`cognitivo/llm_router.py:12`, `cognitivo/web_search.py:22`) so every module loads once by its package path (`cognitivo.orquestador_graph`, `cognitivo.modelo_vision`, `cognitivo.skills.websearch_tool`; today `skills.websearch_tool` loads twice with separate caches). Unit-test the panic path (`canal.seguridad.panic` → `Amigdala.trigger_panic_purge` purges the bus). Make ContextoDerecho request ids unique (two screenshots in the same second share `derecho-<ts>`). Delete the tracked `datos_crudos/temp/test_upload.txt`, the unused `event_loop` and `mock_broker_config` fixtures in `tests/conftest.py`, and the stale `core/test_*.py` path in `openspec/config.yaml`.
 
 ## Phase 2: Notebooks (NotebookLM) and RAG agent
 
@@ -104,11 +107,21 @@ This file is the single source of truth for the work loop. Each loop iteration c
 
 ## Blockers
 
-(none yet)
+### Phase 1
+
+- Human step after merging phase 1: run `python -m memoria.reindex` in the main checkout. Its memory stores have no embedder record, likely hold hash vectors, and older unit tests wrote test rows into the real `memoria_activa`.
+
+### Phase 2
+
+### Phase 3
+
+### Phase 4
 
 ## Log
 
-(one line per completed task: `<task id> <summary>`; the task's commit is the one that adds the line)
+(one line per completed task, under its phase: `<task id> <summary>`; the task's commit is the one that adds the line)
+
+### Phases 0 and 1
 
 - 0.1 Notebook ids are validated against metadata and confined to `SOURCES_DIR` before any filesystem write; unknown notebooks return 404 from the chat, upload and delete endpoints.
 - 0.2 Gateway uploads (notebook sources, `/api/memoria/aprender`, `/upload_sensorial`) are read in chunks and rejected with 413 above `VISION_MAX_UPLOAD_BYTES` (default 50 MB).
@@ -116,3 +129,26 @@ This file is the single source of truth for the work loop. Each loop iteration c
 - 0.4 Rust `set_workspace` state; `read_file_content`/`write_file_content` canonicalize paths and stay inside the workspace (reads capped at 10 MB); `execute_powershell_command` runs inside the workspace only after a native confirmation dialog; app-command permission manifest plus explicit grants; CSP (verified with no violations against the built frontend).
 - 0.5 Chat tool access goes through `decideToolAccess` (Vitest-covered): reads and writes ask for approval unless the level is autonomous, read-only denies writes and PowerShell, PowerShell relies on the native Rust confirmation, unknown tools are denied. Vision Studio now has a Vitest `npm test` script.
 - 0.6 Auto-training quarantines LLM-written tool code in `memoria_activa/skills_propuestas/*.py.txt` (validated CLI name, must parse and define a `@tool` function) instead of writing into `cognitivo/skills`; the CLI scan skips CLIs with a pending proposal; the 9 generated mock skill files are deleted.
+- Phase 0 PR: https://github.com/NezerkC/vision-cognitive-agent/pull/2
+- 1.1 `core/arranque.py` is the single reader of `config/arranque.yaml`: a missing file or key means real mode. The orchestrator, watchdog, daemon reloads and the gateway defaults use it, and the shipped config runs every service for real.
+- 1.2 Embedder failures raise `EmbedderUnavailableError` (no hash/SHA fallback); explicit mock vectors are tagged `mock-hash`; every store records its embedder in `embedder.json` and refuses mismatches; `python -m memoria.reindex` re-embeds stored text; memory tests no longer write into the real `memoria_activa`.
+- 1.3 The LLM path has no mock mode: canned answers are gone from `call_llm` and the graph nodes; `enrutar_peticion` and the graph raise instead of returning error text, so `process_request` publishes `status: failed` with the error.
+- 1.4 Requests with `image_base64` go to the vision model from `hardware_interfaces.json` as a multimodal message (`cognitivo/modelo_vision.py`, `local/` = Ollama) instead of the text graph, which never saw the image; the gateway's image learning uses the same model; a missing model is an error.
+- 1.5 Intriga searches through the shared `WebSearchEngine` and returns nothing instead of a simulated solution; nothing is saved when the search finds nothing; anomalies now ask for permission (the existing HUD ticket and spoken si/no answers work) before any research; auto-training stops when no documentation is found.
+- 1.6 The executor reports `error` (never success or exit code 0) for actions it did not run: mock mode, missing pyautogui (with the import error), and batches with unknown UI commands, which are now rejected before any key is pressed.
+- 1.7 Vision raises `ScreenCaptureError` instead of falling back to mock or a blue frame, announces each distinct capture error once, and creates `mss` lazily (so mock to real reloads work). Hearing and speech report missing packages or models (`unavailable_reason`, HUD announcement) instead of idling as mock. A failed audio transcription returns an error and saves nothing. The audio calibrator exits with 1 instead of showing random levels.
+- 1.8 GPU name, VRAM and temperatures come from `nvidia-smi` and psutil sensors or are `null` (no 16 GB / 45 °C / 50 °C placeholders); the gateway reports the detected GPU name. Vision Studio reads the gateway's camelCase telemetry (the status bar never matched it and always showed a fixed 28.5 %), drops the persisted fake `systemTelemetry`, and shows a dash for missing readings.
+- 1.9 The pineal daemon records screen context, voice and requests between sleeps and asks the LLM to summarize them; no activity or an LLM failure stores nothing (activity is kept for the next cycle). Consolidation moves decayed hot rows to the cold tier (copy, then delete) instead of copying them every cycle. Sleep now needs 10 minutes of idle instead of 10 seconds.
+- 1.10 `/api/memoria` reads the real columns with `table_names()` (it used non-existent columns and `list_tables()`, so it returned nothing or zeros) and returns W and metadata; the web HUD shows an empty graph instead of sample nodes. The dataset loader and the learning endpoint save through the memory schema (`temperatura_z` made every dataset save fail). `handle_guardar` returns whether it saved, and an empty cold table no longer silently redirects cold memories to the hot tier.
+- 1.11 `CerebeloMemoria4D.guardar_recuerdo` returns `status: error` when the store did not save (it always reported success). The in-process orchestrator tracks each service's status, uptime, restarts and last error and writes `config/.health_status.json` every 3 s like the watchdog, so `/api/health` lists services in the default runtime; `/api/health` adds `stale: true` when the file is missing or older than 15 s.
+- Phase 1 PR (opened early at the user's request; 1.12 and 1.13 land on the same branch): https://github.com/NezerkC/vision-cognitive-agent/pull/3
+- 1.12 The `core/test_*.py` broker scripts (pytest never collected them) are deleted. Their still-valid checks are unit tests now: gateway relays (`/upload_sensorial`, `/webhook/externo`, the WebSocket panic purge), the emotional temperature override in `call_llm`, TCP subscribers on the in-process bridge, and `ContextoDerecho.handle_event` (extracted from `run()`, without the dead `mock` field). The web search tests moved to `tests/unit/test_websearch_tool.py` and never touch the network; the live DuckDuckGo test in `tests/integration/` only runs with `pytest --run-integration`. Failed searches report `source: "none"` instead of `"mock"`.
+- 1.13 Voice: transcriptions become `voz-<uuid>` requests on `canal.cognitivo.entrada` (through the Amígdala); `cognitivo/puente_voz.py` speaks answers and refusals on `canal.sensorial.audio.hablar`, and transcriptions that answer a pending Intriga ticket stay with Intriga, which now publishes `canal.intriga.estado`. PC actions: `POST /api/ejecucion/accion` produces `canal.ejecucion.accion` (HUD ticket, human approval). Webhooks and uploads (`canal.sensorial.periferico`, `canal.sensorial.archivo_recibido`) feed the pineal activity log and the HUD. Removed: `canal.sistema.fin_tarea` with `memoria/hipocampo.py` (duplicated the pineal summaries, and its `temperatura_z` payload with it) and `canal.web.busqueda` with `cognitivo/web_search.py` (the graph and Intriga call the engine). Dead `mock` fields removed from the amigdala, the LLM port, Intriga (with its `protocolo_intriga` arranque key) and the HUD console. `canal.imaginacion.peticion` left to 4.5.
+
+### Phase 2
+
+### Phase 3
+
+### Phase 4
+
+### Final summary
