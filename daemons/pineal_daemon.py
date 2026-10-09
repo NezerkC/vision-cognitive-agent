@@ -32,6 +32,15 @@ logger = logging.getLogger("PinealDaemon")
 COLD_W_THRESHOLD = 50.0
 MAX_ACTIVITY_LINES = 200
 MAX_ACTIVITY_CHARS = 300
+# Events the daily summary is built from: screen context, voice, requests, external webhooks and uploads.
+ACTIVITY_TOPICS = [
+    "canal.sistema.contexto_actual",
+    "canal.sensorial.audio.transcripcion",
+    "canal.sensorial.vision",
+    "canal.cognitivo.entrada",
+    "canal.sensorial.periferico",
+    "canal.sensorial.archivo_recibido",
+]
 
 
 async def _resumir_con_llm(prompt: str) -> str:
@@ -89,6 +98,10 @@ class PinealDaemon:
             text = f"Voz: {data.get('transcripcion', '')}"
         elif topic == "canal.cognitivo.entrada":
             text = f"Petición: {data.get('prompt', '')}"
+        elif topic == "canal.sensorial.periferico":
+            text = f"Webhook externo: {json.dumps(data, ensure_ascii=False)}"
+        elif topic == "canal.sensorial.archivo_recibido":
+            text = f"Archivo recibido: {data.get('nombre', '')}"
         if text and text.split(": ", 1)[1].strip():
             self.activity_log.append(text[:MAX_ACTIVITY_CHARS])
             del self.activity_log[:-MAX_ACTIVITY_LINES]
@@ -221,13 +234,7 @@ class PinealDaemon:
                     json.dumps(
                         {
                             "action": "subscribe",
-                            "topics": [
-                                "canal.sistema.contexto_actual",
-                                "canal.sensorial.audio.transcripcion",
-                                "canal.sensorial.vision",
-                                "canal.cognitivo.entrada",
-                                "system",
-                            ],
+                            "topics": [*ACTIVITY_TOPICS, "system"],
                         }
                     )
                     + "\n"
@@ -245,12 +252,7 @@ class PinealDaemon:
                         topic = event.get("topic")
                         data = event.get("data", {})
 
-                        if topic in [
-                            "canal.sistema.contexto_actual",
-                            "canal.sensorial.audio.transcripcion",
-                            "canal.sensorial.vision",
-                            "canal.cognitivo.entrada",
-                        ]:
+                        if topic in ACTIVITY_TOPICS:
                             self.record_activity(topic, data)
 
                         if topic == "system" and data.get("action") == "force_sleep":

@@ -66,6 +66,10 @@ def test_external_webhook_is_relayed_to_the_broker(published):
     assert published == [("canal.sensorial.periferico", payload)]
 
 
+def test_hud_shows_the_webhook_and_upload_events_it_relays():
+    assert {"canal.sensorial.periferico", "canal.sensorial.archivo_recibido"} <= set(gateway.HUD_TOPICS)
+
+
 def test_pc_action_request_is_queued_for_human_approval(published):
     resp = TestClient(gateway.app).post(
         "/api/ejecucion/accion", json={"herramienta": "ejecutar_script", "parametros": ["dir"]}

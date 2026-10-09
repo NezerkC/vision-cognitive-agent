@@ -410,6 +410,12 @@ function handleBrokerEvent(event) {
             }
         );
 
+    } else if (topic === "canal.sensorial.periferico") {
+        addTerminalLog(`🌐 [Webhook] ${JSON.stringify(data)}`, "system-msg");
+
+    } else if (topic === "canal.sensorial.archivo_recibido") {
+        addTerminalLog(`📎 [Archivo] Recibido: ${data.nombre || data.ruta_local || "sin nombre"}`, "system-msg");
+
     } else if (topic === "canal.ejecucion.resultado") {
         const res = data.resultado || {};
         const detail = res.detail ? ` — ${res.detail}` : "";

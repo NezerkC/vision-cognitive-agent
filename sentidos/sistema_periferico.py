@@ -88,6 +88,24 @@ async def get_graph():
 # Shared state class to manage TCP connections to the Event Broker and
 # WebSocket client pool
 # ---------------------------------------------------------------------------
+# Broker topics relayed to the HUD (and Vision Studio) over the WebSocket.
+HUD_TOPICS = [
+    "canal.sistema.contexto_actual",
+    "canal.sensorial.audio.transcripcion",
+    "canal.ejecucion.accion",
+    "canal.ejecucion.resultado",
+    "canal.imaginacion.respuesta",
+    "canal.sistema.anuncios",
+    "canal.sensorial.vision",
+    "canal.memoria",
+    "canal.cognitivo.entrada",
+    "canal.cognitivo.peticion",
+    "canal.cognitivo.respuesta",
+    "canal.sensorial.periferico",
+    "canal.sensorial.archivo_recibido",
+]
+
+
 class PerifericoGateway:
     def __init__(self, host: str = "127.0.0.1", port: int = 5000, web_port: int = 8000):
         self.host = host
@@ -111,28 +129,7 @@ class PerifericoGateway:
                     logger.info("Connected to event broker. Subscribing to system and visual topics...")
 
                     # Subscribe to all relevant system/sensory/execution topics for the GUI
-                    subscribe_msg = (
-                        json.dumps(
-                            {
-                                "action": "subscribe",
-                                "topics": [
-                                    "canal.sistema.contexto_actual",
-                                    "canal.sensorial.audio.transcripcion",
-                                    "canal.ejecucion.accion",
-                                    "canal.ejecucion.resultado",
-                                    "canal.imaginacion.respuesta",
-                                    "canal.sistema.anuncios",
-                                    "canal.sensorial.vision",
-                                    "canal.memoria",
-                                    "canal.cognitivo.entrada",
-                                    "canal.cognitivo.peticion",
-                                    "canal.cognitivo.respuesta",
-                                    "system",
-                                ],
-                            }
-                        )
-                        + "\n"
-                    )
+                    subscribe_msg = json.dumps({"action": "subscribe", "topics": [*HUD_TOPICS, "system"]}) + "\n"
                     self.writer.write(subscribe_msg.encode("utf-8"))
                     await self.writer.drain()
 

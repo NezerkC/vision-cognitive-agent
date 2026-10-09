@@ -2,7 +2,7 @@ import inspect
 
 import pytest
 
-from daemons.pineal_daemon import PinealDaemon
+from daemons.pineal_daemon import ACTIVITY_TOPICS, PinealDaemon
 
 
 class SavedMemories:
@@ -26,6 +26,22 @@ def _daemon(monkeypatch, summarizer):
     saved = SavedMemories()
     monkeypatch.setattr(daemon.cerebelo, "guardar_recuerdo", saved)
     return daemon, saved
+
+
+def test_webhooks_and_uploads_are_activity_for_the_daily_summary(monkeypatch):
+    daemon, _ = _daemon(monkeypatch, None)
+
+    daemon.record_activity("canal.sensorial.periferico", {"event": "git_push", "repo": "vision-os"})
+    daemon.record_activity("canal.sensorial.archivo_recibido", {"nombre": "notas.txt", "ruta_local": "/tmp/notas.txt"})
+
+    assert daemon.activity_log == [
+        'Webhook externo: {"event": "git_push", "repo": "vision-os"}',
+        "Archivo recibido: notas.txt",
+    ]
+
+
+def test_pineal_subscribes_to_every_activity_topic_it_records():
+    assert {"canal.sensorial.periferico", "canal.sensorial.archivo_recibido"} <= set(ACTIVITY_TOPICS)
 
 
 def test_sleep_waits_for_a_real_idle_period():
