@@ -126,6 +126,7 @@ class BrainstemWatchdog:
             },
             "periferico": {"path": os.path.join(project_root, "sentidos", "sistema_periferico.py"), "args": []},
             "intriga": {"path": os.path.join(project_root, "cognitivo", "protocolo_intriga.py"), "args": []},
+            "puente_voz": {"path": os.path.join(project_root, "cognitivo", "puente_voz.py"), "args": []},
             "habla": {
                 "path": os.path.join(project_root, "sentidos", "habla_parietal.py"),
                 "args": get_args("habla", "habla_parietal"),

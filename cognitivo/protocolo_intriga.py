@@ -18,6 +18,8 @@ logger = logging.getLogger("ProtocoloIntriga")
 # First word of the answer to a research ticket, from voice or from the HUD ticket buttons.
 APPROVAL_WORDS = {"si", "sí", "dale", "ok", "procede", "adelante", "yes"}
 REJECTION_WORDS = {"no", "abortar", "aborta", "cancela", "cancelar"}
+# {"esperando_confirmacion": bool}, published whenever a research ticket opens or closes.
+ESTADO_TOPIC = "canal.intriga.estado"
 
 
 class ProtocoloIntriga:
@@ -89,6 +91,7 @@ class ProtocoloIntriga:
         self.waiting_for_confirmation = True
         logger.info(f"Anomalía detectada en pantalla: '{error_text}'. Esperando permiso para investigar.")
 
+        await self._publish(writer, ESTADO_TOPIC, {"esperando_confirmacion": True})
         await self._publish(
             writer,
             "canal.sistema.anuncios",
@@ -110,9 +113,11 @@ class ProtocoloIntriga:
         first = words[0] if words else ""
         if first in APPROVAL_WORDS:
             self.waiting_for_confirmation = False
+            await self._publish(writer, ESTADO_TOPIC, {"esperando_confirmacion": False})
             await self._iniciar_investigacion(writer)
         elif first in REJECTION_WORDS:
             self.waiting_for_confirmation = False
+            await self._publish(writer, ESTADO_TOPIC, {"esperando_confirmacion": False})
             logger.info(f"Investigación cancelada por el usuario: '{self.active_error}'")
             await self._publish(
                 writer,

@@ -96,6 +96,29 @@ async def test_transcriptions_are_ignored_when_no_ticket_is_pending():
 
 
 @pytest.mark.asyncio
+async def test_pending_ticket_is_published_before_the_question():
+    """The voice loop reads this state to tell "sí, procede" answers apart from new requests."""
+    intriga, writer = ProtocoloIntriga(), FakeWriter()
+
+    await intriga.process_context("ANOMALIA_DETECTADA: FFmpeg crashed", writer)
+
+    assert writer.topics()[0] == "canal.intriga.estado"
+    assert writer.events[0]["data"] == {"esperando_confirmacion": True}
+    assert writer.topics()[1] == "canal.sistema.anuncios"
+
+
+@pytest.mark.asyncio
+async def test_answering_the_ticket_publishes_that_it_is_no_longer_pending():
+    intriga, writer = ProtocoloIntriga(), FakeWriter()
+    await intriga.process_context("ANOMALIA_DETECTADA: FFmpeg crashed", writer)
+
+    await intriga.handle_transcription("no, abortar investigacion", writer)
+
+    states = [e["data"] for e in writer.events if e["topic"] == "canal.intriga.estado"]
+    assert states == [{"esperando_confirmacion": True}, {"esperando_confirmacion": False}]
+
+
+@pytest.mark.asyncio
 async def test_found_solution_is_saved_with_its_sources(monkeypatch):
     monkeypatch.setattr(pi, "WebSearchEngine", _engine(FOUND))
     intriga, writer = ProtocoloIntriga(), FakeWriter()

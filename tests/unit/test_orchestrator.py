@@ -45,6 +45,15 @@ def test_no_service_consumes_a_topic_nothing_publishes():
     assert "Web Search" not in names
 
 
+def test_orchestrator_runs_the_voice_loop():
+    """Transcriptions reach the cognitive input and answers come back to the speech service."""
+    orchestrator = BrainstemOrchestrator(use_mock=True, enable_tcp_bridge=False)
+
+    names = [name for name, _ in orchestrator.service_factories(lancedb_mgr=None, lancedb_mock=True)]
+
+    assert "Puente Voz" in names
+
+
 def test_service_factories_do_not_start_anything():
     orchestrator = BrainstemOrchestrator(use_mock=True, enable_tcp_bridge=False)
 

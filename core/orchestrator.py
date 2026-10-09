@@ -20,6 +20,7 @@ from cognitivo.ejecutor_izquierdo import EjecutorIzquierdo
 # Service Imports
 from cognitivo.llm_router import LLMRouter
 from cognitivo.protocolo_intriga import ProtocoloIntriga
+from cognitivo.puente_voz import PuenteVoz
 from core.adapters.event_bus_inmemory import AsyncInMemoryEventBus
 from core.adapters.event_bus_tcp_bridge import TCPEventBusBridge
 from core.amigdala import Amigdala
@@ -142,6 +143,7 @@ class BrainstemOrchestrator:
             ("Habla Parietal", lambda: HablaParietal(port=port, force_mock=mock("habla_parietal")).run()),
             ("Contexto Derecho", lambda: ContextoDerecho(port=port).run()),
             ("Protocolo Intriga", lambda: ProtocoloIntriga(port=port).run()),
+            ("Puente Voz", lambda: PuenteVoz(port=port).run()),
             ("Ejecutor Izquierdo", lambda: EjecutorIzquierdo(port=port, is_mock=mock("ejecutor_izquierdo")).run()),
             (
                 "Imaginación Occipital",
